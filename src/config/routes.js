@@ -1,0 +1,34 @@
+export const ROUTES = {
+  SPLASH: '/',
+  LOGIN: '/login',
+  DASHBOARD: '/dashboard',
+  TRACKING: '/tracking',
+  NOTIFICATIONS: '/notifications',
+  TRIPS: '/trips',
+  BUS_INFO: '/bus-info',
+  PROFILE: '/profile',
+  SETTINGS: '/settings',
+  DRIVER_SIMULATION: '/simulate-driver',
+
+  // SuperAdmin Module
+  SUPERADMIN_LOGIN: '/superadmin/login',
+  SUPERADMIN_DASHBOARD: '/superadmin/dashboard',
+  SCHOOL_MANAGEMENT: '/superadmin/schools',
+  ADMIN_MANAGEMENT: '/superadmin/admins',
+  PLATFORM_SETTINGS: '/superadmin/settings',
+  REPORTS_ANALYTICS: '/superadmin/reports',
+
+  // School Admin Module
+  SCHOOLADMIN_LOGIN: '/schooladmin/login',
+  SCHOOLADMIN_DASHBOARD: '/schooladmin/dashboard',
+  STUDENT_MANAGEMENT: '/schooladmin/students',
+  PARENT_MANAGEMENT: '/schooladmin/parents',
+  BUS_MANAGEMENT: '/schooladmin/buses',
+  DRIVER_MANAGEMENT: '/schooladmin/drivers',
+  ROUTE_MANAGEMENT: '/schooladmin/routes',
+  LIVE_TRACKING: '/schooladmin/tracking',
+  TRANSFER_MANAGEMENT: '/schooladmin/transfers',
+  NOTIFICATION_MANAGEMENT: '/schooladmin/notifications',
+  SCHOOL_REPORTS: '/schooladmin/reports',
+  SCHOOLADMIN_SETTINGS: '/schooladmin/settings',
+};
