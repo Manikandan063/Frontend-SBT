@@ -21,6 +21,7 @@ import api from "../../shared/api/axios";
 import Header from "../../shared/components/Header";
 import AmbientBusAlert from "./AmbientBusAlert";
 import { useLanguage } from "../../shared/context/LanguageContext";
+import { getStudentImageUrl, handleImageError } from "../../shared/utils/imageUtils";
 
 const ParentDashboard = () => {
   const navigate = useNavigate();
@@ -204,11 +205,12 @@ const ParentDashboard = () => {
               <div className="w-[38%] p-4 flex flex-col items-center text-center justify-center shrink-0">
                 <div className="w-16 h-16 bg-primary/5 border border-primary/10 rounded-full flex items-center justify-center text-primary font-black text-2xl shadow-inner shrink-0 overflow-hidden">
                   {selectedChild.profilePhoto ? (
-                    <img 
-                      src={`${import.meta.env.VITE_API_URL.replace('/api', '')}${selectedChild.profilePhoto}`} 
-                      alt={selectedChild.studentName} 
-                      className="w-full h-full object-cover animate-fade-in"
-                    />
+                      <img 
+                        src={getStudentImageUrl(selectedChild.profilePhoto, selectedChild.studentName)} 
+                        alt={selectedChild.studentName} 
+                        className="w-full h-full object-cover animate-fade-in"
+                        onError={(e) => handleImageError(e, selectedChild.studentName)}
+                      />
                   ) : (
                     selectedChild.studentName[0]
                   )}

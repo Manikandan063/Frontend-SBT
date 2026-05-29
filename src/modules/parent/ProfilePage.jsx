@@ -23,6 +23,7 @@ import { logout } from '../../shared/api/authService';
 import api from '../../shared/api/axios';
 import { useLanguage } from '../../shared/context/LanguageContext';
 import { toast } from 'sonner';
+import { getStudentImageUrl, handleImageError } from '../../shared/utils/imageUtils';
 
 const ProfilePage = () => {
   const navigate = useNavigate();
@@ -562,9 +563,10 @@ const ProfilePage = () => {
                     <div key={idx} className="flex items-center gap-4 p-3.5 bg-foreground/[0.02] rounded-2xl border border-border shadow-sm">
                       <div className="w-13 h-13 rounded-xl overflow-hidden shadow-inner border border-primary/20 shrink-0">
                         <img 
-                          src={child.profilePhoto ? `${import.meta.env.VITE_API_URL.replace('/api', '')}${child.profilePhoto}` : `https://ui-avatars.com/api/?name=${child.studentName}&background=88B04B&color=fff`} 
+                          src={getStudentImageUrl(child.profilePhoto, child.studentName)} 
                           alt="" 
                           className="w-full h-full object-cover"
+                          onError={(e) => handleImageError(e, child.studentName)}
                         />
                       </div>
                       

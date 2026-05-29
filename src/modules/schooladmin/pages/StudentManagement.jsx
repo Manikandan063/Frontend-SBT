@@ -24,6 +24,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, Button, Badge, Input } from '../../../shared/components/ui';
 import api from '../../../shared/api';
+import { getStudentImageUrl, handleImageError } from '../../../shared/utils/imageUtils';
 
 const showFriendlyError = (error, fallbackMessage = 'Operation failed. Please try again.') => {
   console.error('Operation failed:', error);
@@ -134,7 +135,7 @@ const StudentManagement = () => {
     setIsEditing(true);
     setEditingId(student.id);
     setPhotoFile(null);
-    setPhotoPreview(student.profilePhoto ? `${import.meta.env.VITE_API_URL.replace('/api', '')}${student.profilePhoto}` : null);
+    setPhotoPreview(student.profilePhoto ? getStudentImageUrl(student.profilePhoto, student.studentName) : null);
     setFormData({
       studentName: student.studentName || '',
       rollNo: student.rollNo || '',
@@ -322,9 +323,10 @@ const StudentManagement = () => {
                           <div className="w-14 h-14 bg-muted rounded-2xl flex items-center justify-center text-foreground/20 group-hover:bg-primary/10 group-hover:text-primary transition-all overflow-hidden shrink-0 border border-primary/5">
                             {student.profilePhoto ? (
                               <img 
-                                src={`${import.meta.env.VITE_API_URL.replace('/api', '')}${student.profilePhoto}`} 
+                                src={getStudentImageUrl(student.profilePhoto, student.studentName)} 
                                 alt={student.studentName} 
                                 className="w-full h-full object-cover" 
+                                onError={(e) => handleImageError(e, student.studentName)}
                               />
                             ) : (
                               <User size={28} />
@@ -699,9 +701,10 @@ const StudentManagement = () => {
                   <div className="w-20 h-20 bg-card rounded-[1.5rem] flex items-center justify-center text-primary shadow-xl relative z-10 overflow-hidden border border-primary/5">
                      {selectedStudent.profilePhoto ? (
                        <img 
-                         src={`${import.meta.env.VITE_API_URL.replace('/api', '')}${selectedStudent.profilePhoto}`} 
+                         src={getStudentImageUrl(selectedStudent.profilePhoto, selectedStudent.studentName)} 
                          alt={selectedStudent.studentName} 
                          className="w-full h-full object-cover" 
+                         onError={(e) => handleImageError(e, selectedStudent.studentName)}
                        />
                      ) : (
                        <User size={32} />
