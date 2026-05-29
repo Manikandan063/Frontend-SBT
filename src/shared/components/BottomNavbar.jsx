@@ -5,132 +5,62 @@ import { ROUTES } from '../../config/routes';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useLanguage } from '../context/LanguageContext';
 
-// Global audio context tracking and chime queue
-let globalAudioCtx = null;
-let chimeQueued = false;
-
-const triggerChime = () => {
-  if (!globalAudioCtx) return;
-  try {
-    const playPing = (time, frequency, duration, volume) => {
-      const osc = globalAudioCtx.createOscillator();
-      const gain = globalAudioCtx.createGain();
-      
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(frequency, time);
-      
-      gain.gain.setValueAtTime(volume, time);
-      gain.gain.exponentialRampToValueAtTime(0.0001, time + duration);
-      
-      osc.connect(gain);
-      gain.connect(globalAudioCtx.destination);
-      
-      osc.start(time);
-      osc.stop(time + duration);
-    };
-    
-    const now = globalAudioCtx.currentTime;
-    // Elegant crystalline major chord chime (C5 -> E5 -> G5 -> C6)
-    playPing(now, 523.25, 0.5, 0.08);       // C5
-    playPing(now + 0.06, 659.25, 0.5, 0.07);  // E5
-    playPing(now + 0.12, 783.99, 0.5, 0.06);  // G5
-    playPing(now + 0.18, 1046.50, 0.7, 0.05); // C6 (sustained high octave chime)
-    
-    chimeQueued = false; // Reset queue
-  } catch (err) {
-    console.error('Triggering audio chime failed:', err);
-  }
-};
-
-const unlockAudio = () => {
-  try {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContext) return;
-    
-    if (!globalAudioCtx) {
-      globalAudioCtx = new AudioContext();
-    }
-    
-    if (globalAudioCtx.state === 'suspended') {
-      globalAudioCtx.resume().then(() => {
-        // If a chime was queued because of a reload, play it now that we are unlocked!
-        if (chimeQueued) {
-          triggerChime();
-        }
-      });
-    } else {
-      if (chimeQueued) {
-        triggerChime();
-      }
-    }
-    
-    // Play a microscopic silent buffer to guarantee hardware activation on mobile/iOS Safari
-    const buffer = globalAudioCtx.createBuffer(1, 1, 22050);
-    const source = globalAudioCtx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(globalAudioCtx.destination);
-    source.start(0);
-    
-    // Remove listeners once successfully unlocked
-    window.removeEventListener('click', unlockAudio);
-    window.removeEventListener('touchstart', unlockAudio);
-  } catch (e) {
-    console.error('Failed to unlock audio context:', e);
-  }
-};
-
 const playNotificationSound = () => {
   try {
     const isSoundEnabled = localStorage.getItem('notificationSoundEnabled') !== 'false';
     if (!isSoundEnabled) return;
 
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContext) return;
-
-    if (!globalAudioCtx) {
-      // Fallback in case gesture hasn't fired yet
-      globalAudioCtx = new AudioContext();
+    const audio = new Audio('/sounds/notification.mp3');
+    const playPromise = audio.play();
+    if (playPromise !== undefined) {
+      playPromise.catch(error => {
+        console.warn('Audio play blocked by browser, but badge will still update.', error);
+      });
     }
-    
-    if (globalAudioCtx.state === 'suspended') {
-      // Audio is blocked/suspended (e.g. on fresh reload). Queue the sound!
-      chimeQueued = true;
-      return;
-    }
-
-    triggerChime();
   } catch (error) {
-    console.error('Audio synthesis failed:', error);
+    console.warn('Audio fallback failed:', error);
   }
 };
 
 const BottomNavbar = ({ activeTab }) => {
   const navigate = useNavigate();
   const { t } = useLanguage();
-  const [hasUnread, setHasUnread] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
   useEffect(() => {
     // 1. Initial check
     const checkUnread = () => {
-      const unread = localStorage.getItem('hasUnreadNotifications') === 'true';
-      setHasUnread(unread);
+      const count = parseInt(localStorage.getItem('unreadNotificationCount') || '0', 10);
+      setUnreadCount(count);
     };
     checkUnread();
 
     // 2. Listen for custom events
-    const handleNewNotification = () => {
-      setHasUnread(true);
+    const handleNewNotification = (e) => {
+      setUnreadCount(e.detail?.count || parseInt(localStorage.getItem('unreadNotificationCount') || '0', 10));
       playNotificationSound();
     };
-    const handleReadNotifications = () => setHasUnread(false);
+    const handleReadNotifications = () => {
+      setUnreadCount(0);
+      localStorage.setItem('unreadNotificationCount', '0');
+    };
 
     window.addEventListener('new-notification', handleNewNotification);
     window.addEventListener('read-notifications', handleReadNotifications);
-    
-    // Also listen for storage changes (in case other tabs update it)
     window.addEventListener('storage', checkUnread);
 
-    // 3. Autoplay policy bypass listeners (runs on user gesture)
+    // Initial silent audio tap unlock (optional but good for mobile)
+    const unlockAudio = () => {
+      try {
+        const audio = new Audio('/sounds/notification.mp3');
+        audio.volume = 0.01;
+        audio.play().then(() => {
+          audio.pause();
+          window.removeEventListener('click', unlockAudio);
+          window.removeEventListener('touchstart', unlockAudio);
+        }).catch(() => {});
+      } catch (e) {}
+    };
     window.addEventListener('click', unlockAudio);
     window.addEventListener('touchstart', unlockAudio);
 
@@ -155,8 +85,8 @@ const BottomNavbar = ({ activeTab }) => {
       <div className="bg-card backdrop-blur-md border border-border rounded-[32px] p-2 flex items-center gap-1 w-full max-w-md shadow-lg pointer-events-auto transition-colors duration-300 will-change-transform">
         {tabs.map((tab) => {
           const isActive = activeTab === tab.id;
-          const showDot = tab.id === 'alerts' && hasUnread && !isActive;
-          const IconComponent = tab.id === 'alerts' && hasUnread ? BellRing : tab.icon;
+          const showDot = tab.id === 'alerts' && unreadCount > 0 && !isActive;
+          const IconComponent = tab.id === 'alerts' && unreadCount > 0 ? BellRing : tab.icon;
 
           return (
             <motion.button
@@ -200,6 +130,11 @@ const BottomNavbar = ({ activeTab }) => {
                   strokeWidth={isActive ? 2.5 : 2} 
                   className={`transition-colors duration-300 ${isActive ? 'text-white' : 'text-foreground/30 group-hover:text-foreground/50'}`}
                 />
+                {tab.id === 'alerts' && unreadCount > 0 && (
+                  <div className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] font-black w-4 h-4 flex items-center justify-center rounded-full border-2 border-card shadow-sm">
+                    {unreadCount > 9 ? '9+' : unreadCount}
+                  </div>
+                )}
               </motion.div>
 
             </motion.button>
