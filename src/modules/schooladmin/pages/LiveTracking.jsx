@@ -174,22 +174,59 @@ const isValidCoord = (lat, lng) => {
 };
 
 const AdminLiveBusMarker = ({ bus, finalPos, isSelected, onSelect }) => {
-  const [prevPos, setPrevPos] = useState(null);
   const [bearing, setBearing] = useState(0);
   const [lastMovedAt, setLastMovedAt] = useState(Date.now());
   const [busStatus, setBusStatus] = useState(bus.trackingStatus || 'IDLE');
   
+  const markerRef = useRef(null);
+  const animationRef = useRef(null);
+  const currentPos = useRef(finalPos);
+  const initialPos = useRef(finalPos);
+
   useEffect(() => {
-    if (prevPos && (prevPos[0] !== bus.latitude || prevPos[1] !== bus.longitude)) {
-      setBearing(calculateBearing(prevPos[0], prevPos[1], bus.latitude, bus.longitude));
-      setPrevPos([bus.latitude, bus.longitude]);
-      setLastMovedAt(Date.now());
-    } else if (!prevPos) {
-      setPrevPos([bus.latitude, bus.longitude]);
-    } else if (bus.speed > 0) {
-      setLastMovedAt(Date.now());
+    if (!markerRef.current) return;
+    
+    const newPos = finalPos;
+    const prev = currentPos.current;
+
+    const dist = L.latLng(prev[0], prev[1]).distanceTo(L.latLng(newPos[0], newPos[1]));
+
+    if (dist < 8) {
+      return;
     }
-  }, [bus.latitude, bus.longitude, bus.speed, prevPos]);
+
+    setBearing(calculateBearing(prev[0], prev[1], newPos[0], newPos[1]));
+    setLastMovedAt(Date.now());
+
+    const duration = 2000;
+    const startTime = performance.now();
+    const startLat = prev[0];
+    const startLng = prev[1];
+
+    const animate = (time) => {
+      let progress = (time - startTime) / duration;
+      if (progress > 1) progress = 1;
+
+      const lat = startLat + (newPos[0] - startLat) * progress;
+      const lng = startLng + (newPos[1] - startLng) * progress;
+
+      currentPos.current = [lat, lng];
+      if (markerRef.current) {
+        markerRef.current.setLatLng([lat, lng]);
+      }
+
+      if (progress < 1) {
+        animationRef.current = requestAnimationFrame(animate);
+      }
+    };
+
+    if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    animationRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    };
+  }, [finalPos[0], finalPos[1]]);
 
   useEffect(() => {
     const statusInterval = setInterval(() => {
@@ -209,7 +246,8 @@ const AdminLiveBusMarker = ({ bus, finalPos, isSelected, onSelect }) => {
 
   return (
     <Marker 
-      position={finalPos}
+      ref={markerRef}
+      position={initialPos.current}
       icon={createAnimatedBusIcon(bus, bearing, busStatus, isSelected)}
       zIndexOffset={isSelected ? 9999 : 0}
       eventHandlers={{ click: () => onSelect(bus) }}

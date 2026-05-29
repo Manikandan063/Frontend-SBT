@@ -182,23 +182,122 @@ const LocateControl = ({ onLocate }) => {
   );
 };
 
-const LiveBusMarker = ({ bus }) => {
-  const [prevPos, setPrevPos] = useState(null);
+const LiveBusMarker = ({ bus, routePath }) => {
   const [bearing, setBearing] = useState(0);
   const [lastMovedAt, setLastMovedAt] = useState(Date.now());
   const [busStatus, setBusStatus] = useState('IDLE');
   
+  const markerRef = useRef(null);
+  const animationRef = useRef(null);
+  const currentPos = useRef([bus.lat, bus.lng]);
+  const initialPos = useRef([bus.lat, bus.lng]);
+
   useEffect(() => {
-    if (prevPos && (prevPos[0] !== bus.lat || prevPos[1] !== bus.lng)) {
-      setBearing(calculateBearing(prevPos[0], prevPos[1], bus.lat, bus.lng));
-      setPrevPos([bus.lat, bus.lng]);
-      setLastMovedAt(Date.now());
-    } else if (!prevPos) {
-      setPrevPos([bus.lat, bus.lng]);
-    } else if (bus.speed > 0) {
-      setLastMovedAt(Date.now());
+    if (!markerRef.current) return;
+    
+    const newPos = [bus.lat, bus.lng];
+    const prev = currentPos.current;
+
+    const dist = L.latLng(prev[0], prev[1]).distanceTo(L.latLng(newPos[0], newPos[1]));
+
+    if (dist < 8) {
+      return; // Ignore GPS jitter
     }
-  }, [bus.lat, bus.lng, bus.speed, prevPos]);
+
+    let animPath = [];
+    if (routePath && routePath.length > 0) {
+      let minDistStart = Infinity;
+      let startIdx = 0;
+      let minDistEnd = Infinity;
+      let endIdx = 0;
+      
+      routePath.forEach((p, i) => {
+        const dStart = L.latLng(prev[0], prev[1]).distanceTo(L.latLng(p[0], p[1]));
+        if (dStart < minDistStart) {
+          minDistStart = dStart;
+          startIdx = i;
+        }
+        const dEnd = L.latLng(newPos[0], newPos[1]).distanceTo(L.latLng(p[0], p[1]));
+        if (dEnd < minDistEnd) {
+          minDistEnd = dEnd;
+          endIdx = i;
+        }
+      });
+
+      if (minDistStart < 100 && minDistEnd < 100) {
+        if (startIdx <= endIdx) {
+          animPath = routePath.slice(startIdx, endIdx + 1);
+        } else {
+          animPath = routePath.slice(endIdx, startIdx + 1).reverse();
+        }
+      }
+    }
+
+    if (animPath.length < 2) {
+      animPath = [prev, newPos];
+    } else {
+      animPath[0] = prev;
+      animPath[animPath.length - 1] = newPos;
+    }
+
+    let totalDist = 0;
+    const dists = [0];
+    for (let i = 0; i < animPath.length - 1; i++) {
+      const d = L.latLng(animPath[i][0], animPath[i][1]).distanceTo(L.latLng(animPath[i+1][0], animPath[i+1][1]));
+      totalDist += d;
+      dists.push(totalDist);
+    }
+
+    setBearing(calculateBearing(prev[0], prev[1], newPos[0], newPos[1]));
+    setLastMovedAt(Date.now());
+
+    const duration = 2000;
+    const startTime = performance.now();
+
+    const animate = (time) => {
+      let progress = (time - startTime) / duration;
+      if (progress > 1) progress = 1;
+
+      let currentLat = newPos[0];
+      let currentLng = newPos[1];
+
+      if (progress < 1) {
+        const targetDist = progress * totalDist;
+        for (let i = 0; i < dists.length - 1; i++) {
+          if (targetDist >= dists[i] && targetDist <= dists[i+1]) {
+            const segmentDist = dists[i+1] - dists[i];
+            if (segmentDist > 0) {
+              const segmentProgress = (targetDist - dists[i]) / segmentDist;
+              const p1 = animPath[i];
+              const p2 = animPath[i+1];
+              currentLat = p1[0] + (p2[0] - p1[0]) * segmentProgress;
+              currentLng = p1[1] + (p2[1] - p1[1]) * segmentProgress;
+            } else {
+              currentLat = animPath[i][0];
+              currentLng = animPath[i][1];
+            }
+            break;
+          }
+        }
+      }
+
+      currentPos.current = [currentLat, currentLng];
+      if (markerRef.current) {
+        markerRef.current.setLatLng([currentLat, currentLng]);
+      }
+
+      if (progress < 1) {
+        animationRef.current = requestAnimationFrame(animate);
+      }
+    };
+
+    if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    animationRef.current = requestAnimationFrame(animate);
+
+    return () => {
+      if (animationRef.current) cancelAnimationFrame(animationRef.current);
+    };
+  }, [bus.lat, bus.lng, routePath]);
 
   useEffect(() => {
     const statusInterval = setInterval(() => {
@@ -217,7 +316,7 @@ const LiveBusMarker = ({ bus }) => {
   }, [bus, lastMovedAt]);
 
   return (
-    <Marker position={[bus.lat, bus.lng]} icon={createAnimatedBusIcon(bus, bearing, busStatus)} zIndexOffset={1000}>
+    <Marker ref={markerRef} position={initialPos.current} icon={createAnimatedBusIcon(bus, bearing, busStatus)} zIndexOffset={1000}>
       <Popup className="custom-dark-popup" offset={[0, -25]}>
         <div className="relative bg-[#1a1c1e]/95 backdrop-blur-xl p-4 rounded-[20px] shadow-[0_12px_40px_rgba(0,0,0,0.6)] flex flex-col font-['Outfit'] min-w-[230px] border border-white/10 overflow-visible">
           {/* Glowing orb background */}
@@ -597,7 +696,7 @@ const LiveTracking = () => {
           })}
           {Object.values(busesData).map((bus, idx) => {
             if (!isValidCoord(bus.lat, bus.lng)) return null;
-            return <LiveBusMarker key={idx} bus={bus} />;
+            return <LiveBusMarker key={idx} bus={bus} routePath={routePath} />;
           })}
 
           {userPos && (
