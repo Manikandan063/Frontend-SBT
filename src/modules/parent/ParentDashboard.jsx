@@ -206,10 +206,10 @@ const ParentDashboard = () => {
                 <div className="w-16 h-16 bg-primary/5 border border-primary/10 rounded-full flex items-center justify-center text-primary font-black text-2xl shadow-inner shrink-0 overflow-hidden">
                   {selectedChild.profilePhoto ? (
                       <img 
-                        src={getStudentImageUrl(selectedChild.profilePhoto, selectedChild.studentName)} 
+                        src={getStudentImageUrl(selectedChild.profilePhoto)} 
                         alt={selectedChild.studentName} 
                         className="w-full h-full object-cover animate-fade-in"
-                        onError={(e) => handleImageError(e, selectedChild.studentName)}
+                        onError={handleImageError}
                       />
                   ) : (
                     selectedChild.studentName[0]

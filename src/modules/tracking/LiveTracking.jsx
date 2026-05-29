@@ -17,6 +17,7 @@ import 'leaflet/dist/leaflet.css';
 import { ROUTES } from '../../config/routes';
 import api from '../../shared/api/axios';
 import { useTheme } from '../../shared/context/ThemeContext';
+import { getStudentImageUrl } from '../../shared/utils/imageUtils';
 
 // Leaflet Icon Fix
 delete L.Icon.Default.prototype._getIconUrl;
@@ -119,7 +120,7 @@ const createStudentIcon = (photoUrl, name) => {
         <div class="student-marker-wrapper">
            <img src="https://img.icons8.com/color/48/marker--v1.png" class="pin-bg" />
            <div class="student-photo-overlay">
-             <img src="${photoUrl}" onerror="this.src='https://ui-avatars.com/api/?name=${name}&background=0F4C5C&color=fff'" />
+             <img src="${photoUrl}" onerror="this.src='/default-student.png'" />
            </div>
         </div>
       `,
@@ -586,7 +587,7 @@ const LiveTracking = () => {
                   key={idx}
                   position={[parseFloat(child.pickupLat), parseFloat(child.pickupLng)]} 
                   icon={createStudentIcon(
-                    child.profilePhoto ? `${import.meta.env.VITE_API_URL.replace('/api', '')}${child.profilePhoto}` : null, 
+                    getStudentImageUrl(child.profilePhoto), 
                     child.studentName || 'Student'
                   )} 
                 />

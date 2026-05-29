@@ -23,6 +23,7 @@ import {
 import { Card, Button, Badge } from '../../../shared/components/ui';
 import api from '../../../shared/api';
 import { motion, AnimatePresence } from 'framer-motion';
+import { getStudentImageUrl, handleImageError } from '../../../shared/utils/imageUtils';
 
 const ReportManagement = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -319,9 +320,10 @@ const ReportManagement = () => {
                   <div className="w-48 h-48 bg-muted rounded-[3rem] border-4 border-card shadow-xl flex items-center justify-center text-foreground/10 relative overflow-hidden shrink-0">
                      {selectedStudent.profilePhoto ? (
                        <img 
-                         src={`${(import.meta.env.VITE_API_URL || 'http://localhost:5000/api').replace('/api', '')}${selectedStudent.profilePhoto}`} 
+                         src={getStudentImageUrl(selectedStudent.profilePhoto)} 
                          alt="Student" 
                          className="w-full h-full object-cover" 
+                         onError={handleImageError}
                        />
                      ) : (
                        <div className="text-6xl font-black text-primary/20 uppercase">{selectedStudent.studentName?.[0] || '?'}</div>

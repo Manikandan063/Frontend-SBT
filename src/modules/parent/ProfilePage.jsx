@@ -563,10 +563,10 @@ const ProfilePage = () => {
                     <div key={idx} className="flex items-center gap-4 p-3.5 bg-foreground/[0.02] rounded-2xl border border-border shadow-sm">
                       <div className="w-13 h-13 rounded-xl overflow-hidden shadow-inner border border-primary/20 shrink-0">
                         <img 
-                          src={getStudentImageUrl(child.profilePhoto, child.studentName)} 
+                          src={getStudentImageUrl(child.profilePhoto)} 
                           alt="" 
                           className="w-full h-full object-cover"
-                          onError={(e) => handleImageError(e, child.studentName)}
+                          onError={handleImageError}
                         />
                       </div>
                       

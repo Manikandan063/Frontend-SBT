@@ -1,17 +1,18 @@
-export const getStudentImageUrl = (profilePhoto, name = 'Student') => {
+export const getStudentImageUrl = (profilePhoto) => {
+  const defaultAvatar = '/default-student.png';
+
   if (!profilePhoto) {
-    return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=88B04B&color=fff`;
+    return defaultAvatar;
   }
   
   if (profilePhoto.startsWith('http')) {
     return profilePhoto;
   }
   
-  // If it starts with /uploads or anything else (broken on Render)
-  return `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=88B04B&color=fff`;
+  return defaultAvatar;
 };
 
-export const handleImageError = (e, name = 'Student') => {
+export const handleImageError = (e) => {
   e.target.onerror = null; // Prevent infinite loops
-  e.target.src = `https://ui-avatars.com/api/?name=${encodeURIComponent(name)}&background=88B04B&color=fff`;
+  e.target.src = '/default-student.png';
 };
