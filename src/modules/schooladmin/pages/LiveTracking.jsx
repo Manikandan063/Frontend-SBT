@@ -1,50 +1,29 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
-  MapPin, 
-  Navigation, 
   Activity, 
   Bus, 
-  ShieldCheck, 
-  Clock, 
   Phone,
   Maximize2,
-  Minimize2,
-  Filter,
   Search,
-  ChevronRight,
   X,
   Plus,
   Minus
 } from 'lucide-react';
-import { MapContainer, TileLayer, Marker, Popup, useMap, Tooltip } from 'react-leaflet';
-import L from 'leaflet';
-import 'leaflet/dist/leaflet.css';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, Button, Badge } from '../../../shared/components/ui';
-import api from '../../../shared/api';
+import api from '../../../shared/api/axios';
+import { GoogleMap, useJsApiLoader, OverlayView } from '@react-google-maps/api';
 
-// Leaflet Icon Fix
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon-2x.png',
-  iconUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-icon.png',
-  shadowUrl: 'https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.7.1/images/marker-shadow.png',
-});
+const containerStyle = {
+  width: "100%",
+  height: "100%",
+};
 
-const busIcon = new L.Icon({
-  iconUrl: 'https://img.icons8.com/fluency/96/bus.png',
-  iconSize: [45, 45],
-  iconAnchor: [22, 22],
-  popupAnchor: [0, -20]
-});
-
-const selectedBusIcon = new L.Icon({
-  iconUrl: 'https://img.icons8.com/fluency/96/bus.png',
-  iconSize: [60, 60],
-  iconAnchor: [30, 30],
-  popupAnchor: [0, -30],
-  className: 'bus-marker-selected'
-});
+const mapOptions = {
+  disableDefaultUI: true,
+  zoomControl: false,
+  gestureHandling: 'greedy',
+};
 
 const calculateBearing = (startLat, startLng, destLat, destLng) => {
   const startLatRad = (startLat * Math.PI) / 180;
@@ -61,112 +40,6 @@ const calculateBearing = (startLat, startLng, destLat, destLng) => {
   return (bearing + 360) % 360;
 };
 
-const createAnimatedBusIcon = (busData, bearing, busStatus, isSelected) => {
-  const isMoving = busStatus === 'MOVING';
-  const scale = isSelected ? 'scale(1.2)' : 'scale(1)';
-  
-  return L.divIcon({
-    className: 'custom-live-bus-marker',
-    html: `
-      <div class="swiggy-marker-wrapper" style="transform: ${scale}; transition: transform 0.3s ease;">
-        <!-- Pulsing Ring -->
-        ${isMoving || isSelected ? `<div class="pulse-ring"></div>` : ''}
-        
-        <!-- Top-Down Bus -->
-        <div class="top-down-bus" style="transform: rotate(${bearing}deg); transition: transform 0.8s linear;">
-          <svg viewBox="0 0 64 128" xmlns="http://www.w3.org/2000/svg" style="width: 28px; height: 56px; filter: drop-shadow(0px 6px 8px rgba(0,0,0,0.4));">
-            <!-- Mirrors -->
-            <rect x="2" y="24" width="8" height="12" fill="#374151" rx="2"/>
-            <rect x="54" y="24" width="8" height="12" fill="#374151" rx="2"/>
-            
-            <!-- Main Body -->
-            <rect x="8" y="4" width="48" height="120" fill="#FBBF24" rx="8" />
-            
-            <!-- Bumpers -->
-            <rect x="12" y="2" width="40" height="4" fill="#4B5563" rx="2"/>
-            <rect x="12" y="122" width="40" height="4" fill="#4B5563" rx="2"/>
-
-            <!-- Front Windshield -->
-            <path d="M10 20 Q 32 14 54 20 L 50 32 L 14 32 Z" fill="#111827" />
-
-            <!-- Rear Window -->
-            <rect x="14" y="112" width="36" height="6" fill="#111827" rx="2" />
-
-            <!-- Roof details -->
-            <rect x="20" y="40" width="24" height="64" fill="#F59E0B" rx="4" />
-            <rect x="24" y="48" width="16" height="12" fill="#FDE68A" rx="2" />
-            <rect x="24" y="80" width="16" height="12" fill="#FDE68A" rx="2" />
-
-            <!-- Tail Lights -->
-            <rect x="12" y="120" width="8" height="4" fill="#EF4444" rx="1" />
-            <rect x="44" y="120" width="8" height="4" fill="#EF4444" rx="1" />
-
-            <!-- Headlights -->
-            <rect x="12" y="4" width="8" height="4" fill="#FEF08A" rx="1" />
-            <rect x="44" y="4" width="8" height="4" fill="#FEF08A" rx="1" />
-          </svg>
-        </div>
-      </div>
-    `,
-    iconSize: [60, 60],
-    iconAnchor: [30, 30],
-  });
-};
-
-const MapController = ({ center, fleet, selectedBusId }) => {
-  const map = useMap();
-  const lastFollowedId = React.useRef(null);
-  
-  useEffect(() => {
-    // If a specific bus is selected and it's a NEW selection or coordinates moved
-    if (center && Array.isArray(center) && isValidCoord(center[0], center[1])) {
-      const isNewSelection = lastFollowedId.current !== selectedBusId;
-      
-      if (isNewSelection) {
-        map.flyTo(center, 16, { animate: true, duration: 1.5 });
-        lastFollowedId.current = selectedBusId;
-      } else {
-        // Just pan smoothly if it's the same bus moving
-        map.panTo(center, { animate: true, duration: 0.5 });
-      }
-    } else if (fleet && fleet.length > 0 && !selectedBusId) {
-      // Fit to all buses if no specific bus is selected
-      lastFollowedId.current = null;
-      const validMarkers = fleet
-        .filter(b => isValidCoord(b.latitude, b.longitude))
-        .map(b => [parseFloat(b.latitude), parseFloat(b.longitude)]);
-      
-      if (validMarkers.length > 0) {
-        const bounds = L.latLngBounds(validMarkers);
-        map.fitBounds(bounds, { padding: [50, 50], animate: true });
-      }
-    }
-  }, [center, map, fleet, selectedBusId]);
-  return null;
-};
-
-const ZoomControls = () => {
-  const map = useMap();
-  return (
-    <div className="absolute top-[176px] right-8 flex flex-col gap-4 z-[1000] pointer-events-auto">
-      <button 
-        onClick={() => map.zoomIn()}
-        className="w-14 h-14 bg-background/80 backdrop-blur-md border border-border rounded-2xl flex items-center justify-center text-foreground/40 hover:text-primary transition-all shadow-xl hover:scale-110 active:scale-95"
-        title="Zoom In"
-      >
-        <Plus size={24} />
-      </button>
-      <button 
-        onClick={() => map.zoomOut()}
-        className="w-14 h-14 bg-background/80 backdrop-blur-md border border-border rounded-2xl flex items-center justify-center text-foreground/40 hover:text-primary transition-all shadow-xl hover:scale-110 active:scale-95"
-        title="Zoom Out"
-      >
-        <Minus size={24} />
-      </button>
-    </div>
-  );
-};
-
 const isValidCoord = (lat, lng) => {
   const pLat = parseFloat(lat);
   const pLng = parseFloat(lng);
@@ -175,45 +48,41 @@ const isValidCoord = (lat, lng) => {
 
 const AdminLiveBusMarker = ({ bus, finalPos, isSelected, onSelect }) => {
   const [bearing, setBearing] = useState(0);
-  const [lastMovedAt, setLastMovedAt] = useState(Date.now());
   const [busStatus, setBusStatus] = useState(bus.trackingStatus || 'IDLE');
+  const [lastMovedAt, setLastMovedAt] = useState(Date.now());
+  const [animPos, setAnimPos] = useState({ lat: finalPos[0], lng: finalPos[1] });
   
-  const markerRef = useRef(null);
+  const currentPos = useRef({ lat: finalPos[0], lng: finalPos[1] });
   const animationRef = useRef(null);
-  const currentPos = useRef(finalPos);
-  const initialPos = useRef(finalPos);
+  
+  const [showPopup, setShowPopup] = useState(false);
 
   useEffect(() => {
-    if (!markerRef.current) return;
-    
-    const newPos = finalPos;
+    const newPos = { lat: finalPos[0], lng: finalPos[1] };
     const prev = currentPos.current;
 
-    const dist = L.latLng(prev[0], prev[1]).distanceTo(L.latLng(newPos[0], newPos[1]));
-
-    if (dist < 8) {
+    const dLat = newPos.lat - prev.lat;
+    const dLng = newPos.lng - prev.lng;
+    const distSq = dLat*dLat + dLng*dLng;
+    if (distSq < 0.000000001) {
       return;
     }
 
-    setBearing(calculateBearing(prev[0], prev[1], newPos[0], newPos[1]));
+    setBearing(calculateBearing(prev.lat, prev.lng, newPos.lat, newPos.lng));
     setLastMovedAt(Date.now());
 
     const duration = 2000;
     const startTime = performance.now();
-    const startLat = prev[0];
-    const startLng = prev[1];
 
     const animate = (time) => {
       let progress = (time - startTime) / duration;
       if (progress > 1) progress = 1;
 
-      const lat = startLat + (newPos[0] - startLat) * progress;
-      const lng = startLng + (newPos[1] - startLng) * progress;
+      const lat = prev.lat + (newPos.lat - prev.lat) * progress;
+      const lng = prev.lng + (newPos.lng - prev.lng) * progress;
 
-      currentPos.current = [lat, lng];
-      if (markerRef.current) {
-        markerRef.current.setLatLng([lat, lng]);
-      }
+      currentPos.current = { lat, lng };
+      setAnimPos({ lat, lng });
 
       if (progress < 1) {
         animationRef.current = requestAnimationFrame(animate);
@@ -244,64 +113,101 @@ const AdminLiveBusMarker = ({ bus, finalPos, isSelected, onSelect }) => {
     return () => clearInterval(statusInterval);
   }, [bus, lastMovedAt]);
 
-  return (
-    <Marker 
-      ref={markerRef}
-      position={initialPos.current}
-      icon={createAnimatedBusIcon(bus, bearing, busStatus, isSelected)}
-      zIndexOffset={isSelected ? 9999 : 0}
-      eventHandlers={{ click: () => onSelect(bus) }}
-    >
-      <Tooltip 
-        permanent 
-        direction="top" 
-        offset={[0, -20]} 
-        className={`!border-none !text-white !font-black !text-[10px] !rounded-lg !px-2 !py-1 shadow-lg ${isSelected ? '!bg-orange-500 !z-[9999]' : '!bg-primary'}`}
-      >
-         BUS {bus.busNumber}
-      </Tooltip>
-      <Popup className="premium-map-popup">
-        <div className="p-4 min-w-[200px] space-y-4">
-           <div className="flex items-center gap-3 border-b border-border pb-3">
-              <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary">
-                 <Bus size={20} />
-              </div>
-              <div>
-                 <p className="text-[10px] font-black uppercase tracking-widest text-foreground/30 leading-none mb-1">Vehicle Unit</p>
-                 <h4 className="text-lg font-black uppercase tracking-tighter text-foreground leading-none">Bus {bus.busNumber}</h4>
-              </div>
-           </div>
-           
-           <div className="space-y-2.5">
-              <div className="flex items-center justify-between">
-                 <span className="text-[9px] font-bold text-foreground/30 uppercase tracking-widest">Registration</span>
-                 <span className="text-[10px] font-black text-foreground uppercase">{bus.busRegisterNumber}</span>
-              </div>
-              <div className="flex items-center justify-between">
-                 <span className="text-[9px] font-bold text-foreground/30 uppercase tracking-widest">Bus Driver</span>
-                 <span className="text-[10px] font-black text-primary uppercase">{bus.driverName || 'N/A'}</span>
-              </div>
-           </div>
+  const isMoving = busStatus === 'MOVING';
+  const scale = isSelected ? 'scale(1.2)' : 'scale(1)';
 
-           <div className="pt-2">
+  return (
+    <OverlayView
+      position={animPos}
+      mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
+      getPixelPositionOffset={(width, height) => ({ x: -(width / 2), y: -(height / 2) })}
+    >
+      <div 
+        className={`swiggy-marker-wrapper cursor-pointer ${isSelected ? 'z-[9999]' : 'z-10'}`} 
+        style={{ transform: scale, transition: 'transform 0.3s ease' }}
+        onClick={(e) => { e.stopPropagation(); onSelect(bus); setShowPopup(!showPopup); }}
+      >
+        {/* Pulsing Ring */}
+        {(isMoving || isSelected) && <div className="pulse-ring"></div>}
+        
+        {/* Classic Top-Down School Bus */}
+        <div className="top-down-bus" style={{ transform: `rotate(${bearing}deg)`, transition: 'transform 0.8s linear' }}>
+          <svg viewBox="0 0 64 128" xmlns="http://www.w3.org/2000/svg" style={{ width: '28px', height: '56px', filter: isSelected ? 'drop-shadow(0px 0px 15px rgba(136,176,75,0.6))' : 'drop-shadow(0px 6px 8px rgba(0,0,0,0.4))' }}>
+            <rect x="2" y="24" width="8" height="12" fill="#374151" rx="2"/>
+            <rect x="54" y="24" width="8" height="12" fill="#374151" rx="2"/>
+            <rect x="8" y="4" width="48" height="120" fill="#FBBF24" rx="8" />
+            <rect x="12" y="2" width="40" height="4" fill="#4B5563" rx="2"/>
+            <rect x="12" y="122" width="40" height="4" fill="#4B5563" rx="2"/>
+            <path d="M10 20 Q 32 14 54 20 L 50 32 L 14 32 Z" fill="#111827" />
+            <rect x="14" y="112" width="36" height="6" fill="#111827" rx="2" />
+            <rect x="20" y="40" width="24" height="64" fill="#F59E0B" rx="4" />
+            <rect x="24" y="48" width="16" height="12" fill="#FDE68A" rx="2" />
+            <rect x="24" y="80" width="16" height="12" fill="#FDE68A" rx="2" />
+            <rect x="12" y="120" width="8" height="4" fill="#EF4444" rx="1" />
+            <rect x="44" y="120" width="8" height="4" fill="#EF4444" rx="1" />
+            <rect x="12" y="4" width="8" height="4" fill="#FEF08A" rx="1" />
+            <rect x="44" y="4" width="8" height="4" fill="#FEF08A" rx="1" />
+          </svg>
+        </div>
+
+        {/* Tooltip */}
+        <div className={`absolute -top-6 left-1/2 -translate-x-1/2 px-2 py-1 rounded-lg text-[10px] font-black text-white shadow-lg whitespace-nowrap pointer-events-none ${isSelected ? 'bg-orange-500 z-[9999]' : 'bg-primary'}`}>
+          BUS {bus.busNumber}
+        </div>
+
+        {/* Popup */}
+        <AnimatePresence>
+          {(showPopup || isSelected) && (
+            <motion.div 
+              initial={{ opacity: 0, y: 10, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 10, scale: 0.95 }}
+              className="absolute bottom-[4.5rem] left-1/2 -translate-x-1/2 w-[220px] bg-card/95 backdrop-blur-xl border border-border shadow-2xl rounded-2xl p-4 cursor-default z-[10000]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Bottom pointer */}
+              <div className="absolute -bottom-2 left-1/2 -translate-x-1/2 w-4 h-4 bg-card border-b border-r border-border rotate-45"></div>
+
+              <div className="flex items-center gap-3 border-b border-border pb-3 mb-3">
+                  <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary">
+                    <Bus size={20} />
+                  </div>
+                  <div>
+                    <p className="text-[10px] font-black uppercase tracking-widest text-foreground/30 leading-none mb-1">Vehicle Unit</p>
+                    <h4 className="text-lg font-black uppercase tracking-tighter text-foreground leading-none">Bus {bus.busNumber}</h4>
+                  </div>
+              </div>
+              
+              <div className="space-y-2.5 mb-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-bold text-foreground/30 uppercase tracking-widest">Registration</span>
+                    <span className="text-[10px] font-black text-foreground uppercase">{bus.busRegisterNumber}</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[9px] font-bold text-foreground/30 uppercase tracking-widest">Bus Driver</span>
+                    <span className="text-[10px] font-black text-primary uppercase">{bus.driverName || 'N/A'}</span>
+                  </div>
+              </div>
+
               <div className={`border rounded-lg py-2 px-3 flex items-center justify-center gap-2 ${
                 busStatus === 'MOVING' ? 'bg-success/5 border-success/10' : 
                 busStatus === 'IDLE' ? 'bg-orange-500/5 border-orange-500/10' : 
                 'bg-red-500/5 border-red-500/10'
               }`}>
-                 <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${
-                   busStatus === 'MOVING' ? 'bg-success' : 
-                   busStatus === 'IDLE' ? 'bg-orange-500' : 'bg-red-500'
-                 }`} />
-                 <span className={`text-[9px] font-black uppercase tracking-widest ${
-                   busStatus === 'MOVING' ? 'text-success' : 
-                   busStatus === 'IDLE' ? 'text-orange-500' : 'text-red-500'
-                 }`}>{busStatus}</span>
+                  <div className={`w-1.5 h-1.5 rounded-full animate-pulse ${
+                    busStatus === 'MOVING' ? 'bg-success' : 
+                    busStatus === 'IDLE' ? 'bg-orange-500' : 'bg-red-500'
+                  }`} />
+                  <span className={`text-[9px] font-black uppercase tracking-widest ${
+                    busStatus === 'MOVING' ? 'text-success' : 
+                    busStatus === 'IDLE' ? 'text-orange-500' : 'text-red-500'
+                  }`}>{busStatus}</span>
               </div>
-           </div>
-        </div>
-      </Popup>
-    </Marker>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+    </OverlayView>
   );
 };
 
@@ -310,11 +216,20 @@ const LiveTracking = () => {
   const [buses, setBuses] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
-  const [mapCenter, setMapCenter] = useState([11.0168, 76.9558]); 
+  const [map, setMap] = useState(null);
+  const [userPanned, setUserPanned] = useState(false);
+  
+  const lastFollowedId = useRef(null);
+  const mapCenterRef = useRef({ lat: 11.0168, lng: 76.9558 });
+  
+  const { isLoaded } = useJsApiLoader({
+    id: 'google-map-script',
+    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
+  });
 
   useEffect(() => {
     fetchBuses();
-    const interval = setInterval(fetchBuses, 5000); // Poll every 5s
+    const interval = setInterval(fetchBuses, 5000); 
     return () => clearInterval(interval);
   }, []);
 
@@ -334,7 +249,6 @@ const LiveTracking = () => {
       const fleet = response.data.data || [];
       setBuses(fleet);
       
-      // If a bus is selected, update its data from the fresh list
       if (selectedBus) {
         const updated = fleet.find(b => b.id === selectedBus.id);
         if (updated) setSelectedBus(updated);
@@ -348,6 +262,7 @@ const LiveTracking = () => {
 
   const handleBusSelect = (bus) => {
     setSelectedBus(bus);
+    setUserPanned(false);
   };
 
   const filteredBuses = buses.filter(bus => 
@@ -356,17 +271,58 @@ const LiveTracking = () => {
     bus.busRegisterNumber?.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
+  // Map panning logic
+  useEffect(() => {
+    if (!map) return;
+    
+    if (selectedBus) {
+      const isNewSelection = lastFollowedId.current !== selectedBus.id;
+      if (isValidCoord(selectedBus.latitude, selectedBus.longitude)) {
+        const center = { lat: parseFloat(selectedBus.latitude), lng: parseFloat(selectedBus.longitude) };
+        if (isNewSelection) {
+          map.panTo(center);
+          map.setZoom(16);
+          lastFollowedId.current = selectedBus.id;
+        } else if (!userPanned) {
+          map.panTo(center);
+        }
+      }
+    } else if (buses && buses.length > 0) {
+      lastFollowedId.current = null;
+      const validMarkers = buses
+        .filter(b => isValidCoord(b.latitude, b.longitude))
+        .map(b => new window.google.maps.LatLng(parseFloat(b.latitude), parseFloat(b.longitude)));
+      
+      if (validMarkers.length > 0) {
+        const bounds = new window.google.maps.LatLngBounds();
+        validMarkers.forEach(marker => bounds.extend(marker));
+        map.fitBounds(bounds);
+        // add padding
+        map.panToBounds(bounds, 50);
+      }
+    }
+  }, [selectedBus, map, buses]);
+
+  const onLoad = useCallback(function callback(mapInstance) {
+    setMap(mapInstance);
+  }, []);
+
+  const onUnmount = useCallback(function callback(mapInstance) {
+    setMap(null);
+  }, []);
+
+  if (!isLoaded) {
+    return (
+      <div className="flex flex-col items-center justify-center h-[calc(100vh-140px)] gap-4">
+        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-foreground/40">Loading Map...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="flex flex-col lg:flex-row gap-4 lg:gap-6 pb-20 lg:h-[calc(100vh-140px)]">
       <style>{`
-        .bus-marker-selected {
-          filter: drop-shadow(0 0 15px rgba(136, 176, 75, 0.6));
-          z-index: 1000 !important;
-        }
-        .custom-live-bus-marker {
-          transition: margin 0.8s linear, transform 0.8s linear !important; 
-          z-index: 1000 !important;
-        }
         .swiggy-marker-wrapper {
           position: relative;
           width: 60px;
@@ -396,27 +352,6 @@ const LiveTracking = () => {
         @keyframes swiggy-pulse {
           0% { transform: scale(0.6); opacity: 0.6; }
           100% { transform: scale(1.6); opacity: 0; }
-        }
-        .leaflet-container {
-          background: var(--color-background) !important;
-          border-radius: 2rem;
-        }
-        .premium-map-popup .leaflet-popup-content-wrapper {
-          background: var(--color-background) !important;
-          backdrop-filter: blur(10px);
-          border-radius: 1.5rem !important;
-          padding: 0 !important;
-          overflow: hidden;
-          box-shadow: 0 20px 40px -10px rgba(0,0,0,0.3) !important;
-          border: 1px solid var(--color-border);
-          color: var(--color-foreground) !important;
-        }
-        .premium-map-popup .leaflet-popup-content {
-          margin: 0 !important;
-          width: auto !important;
-        }
-        .premium-map-popup .leaflet-popup-tip {
-          background: var(--color-background) !important;
         }
       `}</style>
 
@@ -460,7 +395,6 @@ const LiveTracking = () => {
                       : 'bg-white border-slate-100 hover:border-[#88B04B]/30 hover:shadow-md shadow-sm'
                   }`}
                 >
-                   {/* Background Glow for Selected */}
                    {selectedBus?.id === bus.id && (
                      <div className="absolute inset-0 bg-gradient-to-r from-white/0 via-white/10 to-white/0 translate-x-[-100%] group-hover:translate-x-[100%] transition-transform duration-1000" />
                    )}
@@ -503,47 +437,37 @@ const LiveTracking = () => {
          </div>
       </Card>
 
-      {/* Main Map View */}
       <Card className="w-full lg:flex-1 h-[500px] lg:h-auto !p-0 relative overflow-hidden border-none shadow-2xl bg-card rounded-[2rem] lg:rounded-[2.5rem]">
-         <MapContainer 
-           center={[11.0168, 76.9558]} 
-           zoom={13} 
-           zoomControl={false} 
-           className="h-full w-full z-0"
+         <GoogleMap
+            mapContainerStyle={containerStyle}
+            center={mapCenterRef.current}
+            zoom={13}
+            options={mapOptions}
+            onLoad={onLoad}
+            onUnmount={onUnmount}
+            onClick={() => setSelectedBus(null)}
+            onDragStart={() => setUserPanned(true)}
          >
-           <TileLayer 
-             url="https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png" 
-             attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-             className="dark:filter dark:invert dark:hue-rotate-180"
-           />
-           <ZoomControls />
-
-
             {/* Marker Collision Detection & Rendering */}
             {(() => {
               const posGroups = {};
               buses.forEach(bus => {
                 if (isValidCoord(bus.latitude, bus.longitude)) {
-                  // Group buses within ~11 meters of each other (toFixed(4))
                   const key = `${parseFloat(bus.latitude).toFixed(4)},${parseFloat(bus.longitude).toFixed(4)}`;
                   if (!posGroups[key]) posGroups[key] = [];
                   posGroups[key].push(bus);
                 }
               });
 
-              // Sort each group by ID for stable indexing
               Object.values(posGroups).forEach(group => group.sort((a, b) => a.id.localeCompare(b.id)));
 
-              let selectedBusOffsetPos = null;
-
-              // Force the selected bus to render LAST in the DOM so its tooltip and icon are on top
               const sortedBuses = [...buses].sort((a, b) => {
                 if (selectedBus?.id === a.id) return 1;
                 if (selectedBus?.id === b.id) return -1;
                 return 0;
               });
 
-              const markers = sortedBuses.map((bus) => {
+              return sortedBuses.map((bus) => {
                 if (!isValidCoord(bus.latitude, bus.longitude)) return null;
                 
                 const lat = parseFloat(bus.latitude);
@@ -554,19 +478,13 @@ const LiveTracking = () => {
                 
                 let finalPos = [lat, lng];
                 if (group.length > 1) {
-                  // If this bus is selected, put it at the EXACT location
-                  // If it's NOT selected, offset it slightly so it doesn't hide behind the selected one
                   if (selectedBus?.id === bus.id) {
                     finalPos = [lat, lng];
                   } else {
                     const angle = (index / group.length) * 2 * Math.PI;
-                    const radius = 0.00035; // Increased offset (~38m) so tooltips don't hide the selected one
+                    const radius = 0.00035; 
                     finalPos = [lat + Math.cos(angle) * radius, lng + Math.sin(angle) * radius];
                   }
-                }
-
-                if (selectedBus?.id === bus.id) {
-                  selectedBusOffsetPos = [lat, lng]; // Always center on true location
                 }
 
                 return (
@@ -579,19 +497,8 @@ const LiveTracking = () => {
                   />
                 );
               });
-
-              return (
-                <>
-                  <MapController 
-                    selectedBusId={selectedBus?.id}
-                    center={selectedBusOffsetPos} 
-                    fleet={selectedBus ? null : buses}
-                  />
-                  {markers}
-                </>
-              );
             })()}
-         </MapContainer>
+         </GoogleMap>
 
          {/* Map Interface Overlay Controls */}
          <div className="absolute top-8 right-8 flex flex-col gap-4 z-[1000]">
@@ -601,6 +508,20 @@ const LiveTracking = () => {
             <button className="w-14 h-14 bg-background/80 backdrop-blur-md border border-border rounded-2xl flex items-center justify-center text-foreground/40 hover:text-primary transition-all shadow-xl hover:scale-110 active:scale-95">
                <Activity size={24} />
             </button>
+            <div className="flex flex-col gap-2 mt-4">
+              <button 
+                onClick={() => map?.setZoom(map.getZoom() + 1)}
+                className="w-14 h-14 bg-background/80 backdrop-blur-md border border-border rounded-2xl flex items-center justify-center text-foreground/40 hover:text-primary transition-all shadow-xl hover:scale-110 active:scale-95"
+              >
+                <Plus size={24} />
+              </button>
+              <button 
+                onClick={() => map?.setZoom(map.getZoom() - 1)}
+                className="w-14 h-14 bg-background/80 backdrop-blur-md border border-border rounded-2xl flex items-center justify-center text-foreground/40 hover:text-primary transition-all shadow-xl hover:scale-110 active:scale-95"
+              >
+                <Minus size={24} />
+              </button>
+            </div>
          </div>
 
          {/* Floating Status Card */}

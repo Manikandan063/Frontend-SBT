@@ -8,6 +8,7 @@ import { Toaster } from 'sonner';
 import NotificationHandler from './NotificationHandler';
 import api from './shared/api';
 import MaintenanceScreen from './shared/components/MaintenanceScreen';
+import LiveMap from './shared/components/LiveMap';
 
 function App() {
   const [maintenanceActive, setMaintenanceActive] = useState(false);

@@ -19,6 +19,7 @@
     "vite": "^8.0.12"
   },
   "dependencies": {
+    "@react-google-maps/api": "^2.20.8",
     "@turf/turf": "^7.3.5",
     "axios": "^1.16.0",
     "clsx": "^2.1.1",
