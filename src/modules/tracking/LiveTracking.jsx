@@ -21,6 +21,7 @@ import { getSnappedPosition } from '../../shared/utils/mapUtils';
 const containerStyle = {
   width: "100%",
   height: "100%",
+  touchAction: "none"
 };
 
 const mapOptions = {
@@ -76,7 +77,8 @@ const LiveBusMarker = ({ bus, routePath }) => {
       const dLat = newPos.lat - prev.lat;
       const dLng = newPos.lng - prev.lng;
       const distSq = dLat*dLat + dLng*dLng;
-      if (distSq < 0.000000001) {
+      // Ignore very small drift (approx 8 meters)
+      if (distSq < 0.000000005) {
         return; 
       }
 

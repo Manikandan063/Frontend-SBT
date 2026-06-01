@@ -1,11 +1,39 @@
 import { getMessagingInstance } from './firebase';
 import { getToken } from 'firebase/messaging';
 import axios from 'axios';
+import { Capacitor } from '@capacitor/core';
+import { PushNotifications } from '@capacitor/push-notifications';
 
 const VAPID_KEY = import.meta.env.VITE_FIREBASE_VAPID_KEY;
 
 export const requestNotificationPermission = async () => {
   try {
+    if (Capacitor.isNativePlatform()) {
+      let permStatus = await PushNotifications.checkPermissions();
+      if (permStatus.receive === 'prompt') {
+        permStatus = await PushNotifications.requestPermissions();
+      }
+      if (permStatus.receive !== 'granted') {
+        console.warn('[Capacitor] User denied push notification permissions!');
+        return null;
+      }
+
+      await PushNotifications.register();
+
+      return new Promise((resolve) => {
+        PushNotifications.addListener('registration', (token) => {
+          console.log('[Capacitor] Push registration success, token: ' + token.value);
+          localStorage.setItem('fcmToken', token.value);
+          resolve(token.value);
+        });
+        PushNotifications.addListener('registrationError', (error) => {
+          console.error('[Capacitor] Error on registration: ' + JSON.stringify(error));
+          resolve(null);
+        });
+      });
+    }
+
+    // Web Firebase Logic
     const messaging = await getMessagingInstance();
     if (!messaging) return null; // Silence redundant warning, already handled in firebase.js init
 

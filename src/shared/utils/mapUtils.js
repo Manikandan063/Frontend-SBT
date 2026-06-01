@@ -1,3 +1,5 @@
+import api from '../api/axios';
+
 export const calculateBearing = (startLat, startLng, destLat, destLng) => {
   const startLatRad = (startLat * Math.PI) / 180;
   const startLngRad = (startLng * Math.PI) / 180;
@@ -40,10 +42,9 @@ export const getSnappedPosition = async (lat, lng, routePath = null, apiKey = nu
   }
 
   try {
-    const response = await fetch(
-      `https://roads.googleapis.com/v1/snapToRoads?path=${lat},${lng}&interpolate=true&key=${apiKey}`
-    );
-    const data = await response.json();
+    // Proxy request through backend to bypass HTTP referer restrictions
+    const response = await api.get(`/tracking/snap?path=${lat},${lng}&key=${apiKey}`);
+    const data = response.data;
 
     if (data.snappedPoints && data.snappedPoints.length > 0) {
       const snapped = {
