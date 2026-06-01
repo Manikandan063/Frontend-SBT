@@ -16,6 +16,7 @@ import { ROUTES } from '../../config/routes';
 import api from '../../shared/api/axios';
 import { useTheme } from '../../shared/context/ThemeContext';
 import { getStudentImageUrl } from '../../shared/utils/imageUtils';
+import { getSnappedPosition } from '../../shared/utils/mapUtils';
 
 const containerStyle = {
   width: "100%",
@@ -26,6 +27,7 @@ const mapOptions = {
   disableDefaultUI: true,
   zoomControl: false,
   gestureHandling: 'greedy',
+  clickableIcons: false,
 };
 
 const libraries = ['places'];
@@ -51,7 +53,7 @@ const isValidCoord = (lat, lng) => {
   return !isNaN(pLat) && !isNaN(pLng);
 };
 
-const LiveBusMarker = ({ bus }) => {
+const LiveBusMarker = ({ bus, routePath }) => {
   const [bearing, setBearing] = useState(0);
   const [lastMovedAt, setLastMovedAt] = useState(Date.now());
   const [busStatus, setBusStatus] = useState('IDLE');
@@ -62,32 +64,106 @@ const LiveBusMarker = ({ bus }) => {
   const animationRef = useRef(null);
 
   useEffect(() => {
-    const newPos = { lat: bus.lat, lng: bus.lng };
-    const prev = currentPos.current;
+    let active = true;
+    const processMovement = async () => {
+      const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+      const newPos = await getSnappedPosition(bus.lat, bus.lng, routePath, apiKey);
+      
+      if (!active) return;
 
-    // Very basic distance check to avoid tiny jitters
-    const dLat = newPos.lat - prev.lat;
-    const dLng = newPos.lng - prev.lng;
-    const distSq = dLat*dLat + dLng*dLng;
-    if (distSq < 0.000000001) {
-      return; 
+      const prev = currentPos.current;
+
+      const dLat = newPos.lat - prev.lat;
+      const dLng = newPos.lng - prev.lng;
+      const distSq = dLat*dLat + dLng*dLng;
+      if (distSq < 0.000000001) {
+        return; 
+      }
+
+      setLastMovedAt(Date.now());
+
+      let actualPath = [];
+      if (routePath && routePath.length > 0) {
+      const findNearest = (pos) => {
+        let minDist = Infinity;
+        let idx = 0;
+        routePath.forEach((pt, i) => {
+          const d = (pt.lat - pos.lat)**2 + (pt.lng - pos.lng)**2;
+          if (d < minDist) { minDist = d; idx = i; }
+        });
+        return { idx, point: routePath[idx] };
+      };
+      
+      const prevSnap = findNearest(prev);
+      const newSnap = findNearest(newPos);
+      
+      if (prevSnap.idx === newSnap.idx) {
+        actualPath = [prev, newSnap.point];
+      } else {
+        const start = Math.min(prevSnap.idx, newSnap.idx);
+        const end = Math.max(prevSnap.idx, newSnap.idx);
+        actualPath = routePath.slice(start, end + 1);
+        if (prevSnap.idx > newSnap.idx) {
+          actualPath.reverse();
+        }
+        // Ensure smooth transition from current pos
+        actualPath.unshift(prev);
+      }
+    } else {
+      actualPath = [prev, newPos];
     }
 
-    setBearing(calculateBearing(prev.lat, prev.lng, newPos.lat, newPos.lng));
-    setLastMovedAt(Date.now());
+    const distances = [];
+    let totalDist = 0;
+    for (let i = 0; i < actualPath.length - 1; i++) {
+      const p1 = actualPath[i];
+      const p2 = actualPath[i+1];
+      const d = Math.sqrt((p2.lat - p1.lat)**2 + (p2.lng - p1.lng)**2);
+      distances.push(d);
+      totalDist += d;
+    }
 
-    const duration = 2000;
+    if (totalDist === 0) return;
+
+    const duration = 4500;
     const startTime = performance.now();
 
     const animate = (time) => {
       let progress = (time - startTime) / duration;
       if (progress > 1) progress = 1;
 
-      const currentLat = prev.lat + (newPos.lat - prev.lat) * progress;
-      const currentLng = prev.lng + (newPos.lng - prev.lng) * progress;
+      const targetDist = progress * totalDist;
+      let currentDist = 0;
+      let segmentIndex = 0;
+      
+      for (let i = 0; i < distances.length; i++) {
+        if (currentDist + distances[i] >= targetDist) {
+          segmentIndex = i;
+          break;
+        }
+        currentDist += distances[i];
+      }
+      
+      if (segmentIndex >= actualPath.length - 1) {
+        segmentIndex = actualPath.length - 2;
+      }
+      if (segmentIndex < 0) segmentIndex = 0;
+      
+      const p1 = actualPath[segmentIndex];
+      const p2 = actualPath[segmentIndex + 1];
+      
+      const segmentProgress = distances[segmentIndex] > 0 
+        ? (targetDist - currentDist) / distances[segmentIndex] 
+        : 1;
+
+      const currentLat = p1.lat + (p2.lat - p1.lat) * segmentProgress;
+      const currentLng = p1.lng + (p2.lng - p1.lng) * segmentProgress;
 
       setAnimPos({ lat: currentLat, lng: currentLng });
       currentPos.current = { lat: currentLat, lng: currentLng };
+
+      const newBearing = bus.heading ?? bus.course ?? calculateBearing(p1.lat, p1.lng, p2.lat, p2.lng);
+      setBearing(newBearing);
 
       if (progress < 1) {
         animationRef.current = requestAnimationFrame(animate);
@@ -97,10 +173,15 @@ const LiveBusMarker = ({ bus }) => {
     if (animationRef.current) cancelAnimationFrame(animationRef.current);
     animationRef.current = requestAnimationFrame(animate);
 
+    };
+
+    processMovement();
+
     return () => {
+      active = false;
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [bus.lat, bus.lng]);
+  }, [bus.lat, bus.lng, routePath]);
 
   useEffect(() => {
     const statusInterval = setInterval(() => {
@@ -124,7 +205,7 @@ const LiveBusMarker = ({ bus }) => {
     <OverlayView
       position={animPos}
       mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-      getPixelPositionOffset={(width, height) => ({ x: -(width / 2), y: -(height / 2) })}
+      getPixelPositionOffset={() => ({ x: -30, y: -30 })}
     >
       <div 
         className="swiggy-marker-wrapper z-50 cursor-pointer"
@@ -185,8 +266,13 @@ const LiveBusMarker = ({ bus }) => {
                 </div>
               </div>
               
-              <div className="bg-white/5 border border-white/10 px-2 py-1.5 rounded-lg shadow-inner">
-                 <span className="font-black text-white text-[11px] tracking-widest">{bus.busNumber || bus.busInfo?.busNumber || 'T-02'}</span>
+              <div className="flex flex-col items-end gap-1">
+                <div className="bg-white/5 border border-white/10 px-2 py-1.5 rounded-lg shadow-inner">
+                   <span className="font-black text-white text-[11px] tracking-widest">{bus.busNumber || bus.busInfo?.busNumber || 'T-02'}</span>
+                </div>
+                {bus.accuracy > 20 && (
+                   <span className="text-[8px] font-bold text-red-400 uppercase tracking-widest mt-1">Weak GPS ({Math.round(bus.accuracy)}m)</span>
+                )}
               </div>
             </div>
 
@@ -252,16 +338,23 @@ const LiveTracking = () => {
   const [locating, setLocating] = useState(false);
   const [userPos, setUserPos] = useState(null);
   
-  const mapCenterRef = useRef({ lat: 11.0168, lng: 76.9558 });
-  const [userPanned, setUserPanned] = useState(false);
+  const [routePath, setRoutePath] = useState([]);
+  const [isCalculatingRoute, setIsCalculatingRoute] = useState(false);
+  const initialCenterRef = useRef({ lat: 11.0168, lng: 76.9558 });
+  const initialZoomRef = useRef(15);
+  const [isFollowingBus, setIsFollowingBus] = useState(true);
   
+  const mapRef = useRef(null);
   const pollInterval = useRef(null);
   const lastRouteFetch = useRef(0);
+  const lastRouteOrigin = useRef(null);
 
   const calculateRoute = useCallback(async () => {
     if (!window.google || !busPos || !homePos || isNaN(busPos.lat) || isNaN(homePos.lat)) {
       return;
     }
+    
+    setIsCalculatingRoute(true);
     const directionsService = new window.google.maps.DirectionsService();
     try {
       const results = await directionsService.route({
@@ -274,9 +367,24 @@ const LiveTracking = () => {
         const leg = results.routes[0].legs[0];
         setDistance(leg.distance.text.replace(' km', '')); 
         setEta(leg.duration.text);
+        
+        let fullPath = [];
+        results.routes[0].legs.forEach(l => {
+          l.steps.forEach(step => {
+            step.path.forEach(p => {
+               fullPath.push({ lat: p.lat(), lng: p.lng() });
+            });
+          });
+        });
+        setRoutePath(fullPath);
       }
     } catch (error) {
       console.error("Error fetching directions:", error);
+      // Fallback: clear route path on failure so it draws straight line
+      setRoutePath([]);
+      setDirectionsResponse(null);
+    } finally {
+      setIsCalculatingRoute(false);
     }
   }, [busPos, homePos]);
 
@@ -377,11 +485,27 @@ const LiveTracking = () => {
   }, [allChildren]);
 
   useEffect(() => {
-    if (isLoaded && !loading) {
+    if (isLoaded && !loading && busPos && homePos) {
       const now = Date.now();
-      if (now - lastRouteFetch.current > 30000) {
+      let shouldCalculate = false;
+
+      if (!lastRouteOrigin.current) {
+        shouldCalculate = true;
+      } else {
+        const dLat = busPos.lat - lastRouteOrigin.current.lat;
+        const dLng = busPos.lng - lastRouteOrigin.current.lng;
+        const distSq = dLat * dLat + dLng * dLng;
+        // ~100 meters is roughly 0.001 degrees, squared is 0.000001
+        if (distSq > 0.000001) {
+          shouldCalculate = true;
+        }
+      }
+
+      // If we should calculate and at least 15 seconds have passed since last fetch to avoid spamming
+      if (shouldCalculate && (now - lastRouteFetch.current > 15000)) {
         calculateRoute();
         lastRouteFetch.current = now;
+        lastRouteOrigin.current = busPos;
       }
     }
   }, [busPos, homePos, isLoaded, loading, calculateRoute]);
@@ -393,9 +517,9 @@ const LiveTracking = () => {
         (position) => {
           const pos = { lat: position.coords.latitude, lng: position.coords.longitude };
           setUserPos(pos);
-          if (map) {
-            map.panTo(pos);
-            map.setZoom(17);
+          if (mapRef.current) {
+            mapRef.current.panTo(pos);
+            mapRef.current.setZoom(17);
           }
           setLocating(false);
         },
@@ -411,19 +535,22 @@ const LiveTracking = () => {
   };
 
   useEffect(() => {
-    if (map && busPos && !userPanned && !loading) {
-      map.panTo(busPos);
+    if (mapRef.current && busPos && isFollowingBus && !loading) {
+      mapRef.current.panTo(busPos);
     }
-  }, [map, busPos, userPanned, loading]);
+  }, [busPos, isFollowingBus, loading]);
 
   const onLoad = useCallback(function callback(mapInstance) {
     setMap(mapInstance);
-    // Optional: mapInstance.setOptions({ styles: myStyles });
+    mapRef.current = mapInstance;
   }, []);
 
-  const onUnmount = useCallback(function callback(mapInstance) {
+  const onUnmount = useCallback(function callback() {
     setMap(null);
+    mapRef.current = null;
   }, []);
+
+
 
   if (loading || !isLoaded) {
     return (
@@ -490,14 +617,23 @@ const LiveTracking = () => {
               <span className="text-[10px] font-black uppercase tracking-widest text-white">Waiting for GPS Signal...</span>
            </div>
         )}
+        {isCalculatingRoute && (
+           <div className="absolute top-36 left-1/2 -translate-x-1/2 z-[1000] bg-blue-500/90 backdrop-blur-md px-6 py-3 rounded-full border border-white/20 shadow-xl flex items-center justify-center gap-3 whitespace-nowrap">
+              <div className="w-3 h-3 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              <span className="text-[10px] font-black uppercase tracking-widest text-white animate-pulse">Calculating route...</span>
+           </div>
+        )}
         <GoogleMap
           mapContainerStyle={containerStyle}
-          center={mapCenterRef.current}
-          zoom={15}
+          center={initialCenterRef.current}
+          zoom={initialZoomRef.current}
           options={mapOptions}
           onLoad={onLoad}
           onUnmount={onUnmount}
-          onDragStart={() => setUserPanned(true)}
+          onDragStart={() => setIsFollowingBus(false)}
+          onZoomChanged={() => {
+            if (mapRef.current && isLoaded) setIsFollowingBus(false);
+          }}
         >
           {directionsResponse && (
             <DirectionsRenderer 
@@ -505,7 +641,7 @@ const LiveTracking = () => {
               options={{ 
                 suppressMarkers: true,
                 polylineOptions: {
-                  strokeColor: '#3b82f6',
+                  strokeColor: '#0891B2',
                   strokeWeight: 6,
                   strokeOpacity: 0.8
                 }
@@ -554,7 +690,7 @@ const LiveTracking = () => {
 
           {Object.values(busesData).map((bus, idx) => {
             if (!isValidCoord(bus.lat, bus.lng)) return null;
-            return <LiveBusMarker key={bus.id || idx} bus={bus} />;
+            return <LiveBusMarker key={bus.id || idx} bus={bus} routePath={routePath} />;
           })}
 
           {userPos && (
@@ -570,10 +706,22 @@ const LiveTracking = () => {
         <button 
           onClick={handleLocate}
           disabled={locating}
-          className={`absolute right-6 top-32 z-[1000] p-4 bg-card/90 backdrop-blur-md rounded-[24px] border border-border shadow-sm text-foreground active:scale-95 transition-all pointer-events-auto ${locating ? 'animate-pulse' : ''}`}
+          className={`absolute right-6 top-32 z-[1000] p-3 bg-card/90 backdrop-blur-md rounded-[20px] border border-border shadow-sm text-foreground active:scale-95 transition-all pointer-events-auto ${locating ? 'animate-pulse' : ''}`}
         >
-          <LocateFixed size={24} />
+          <LocateFixed size={20} />
         </button>
+
+        {!isFollowingBus && (
+          <button 
+            onClick={() => {
+              setIsFollowingBus(true);
+              if (mapRef.current && busPos) mapRef.current.panTo(busPos);
+            }}
+            className="absolute right-6 top-[184px] z-[1000] p-3 bg-[#3b82f6]/90 text-white backdrop-blur-md rounded-[20px] shadow-lg border border-white/20 active:scale-95 transition-all pointer-events-auto flex items-center justify-center"
+          >
+            <Navigation size={20} fill="currentColor" />
+          </button>
+        )}
       </div>
 
       <div className="absolute top-0 inset-x-0 p-6 z-10 flex items-center justify-between pointer-events-none">

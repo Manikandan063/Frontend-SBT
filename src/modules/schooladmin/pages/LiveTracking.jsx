@@ -13,6 +13,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Card, Button, Badge } from '../../../shared/components/ui';
 import api from '../../../shared/api/axios';
 import { GoogleMap, useJsApiLoader, OverlayView } from '@react-google-maps/api';
+import { getSnappedPosition } from '../../../shared/utils/mapUtils';
 
 const containerStyle = {
   width: "100%",
@@ -23,6 +24,7 @@ const mapOptions = {
   disableDefaultUI: true,
   zoomControl: false,
   gestureHandling: 'greedy',
+  clickableIcons: false,
 };
 
 const calculateBearing = (startLat, startLng, destLat, destLng) => {
@@ -51,6 +53,7 @@ const AdminLiveBusMarker = ({ bus, finalPos, isSelected, onSelect }) => {
   const [busStatus, setBusStatus] = useState(bus.trackingStatus || 'IDLE');
   const [lastMovedAt, setLastMovedAt] = useState(Date.now());
   const [animPos, setAnimPos] = useState({ lat: finalPos[0], lng: finalPos[1] });
+  const [snappedTarget, setSnappedTarget] = useState({ lat: finalPos[0], lng: finalPos[1] });
   
   const currentPos = useRef({ lat: finalPos[0], lng: finalPos[1] });
   const animationRef = useRef(null);
@@ -58,7 +61,20 @@ const AdminLiveBusMarker = ({ bus, finalPos, isSelected, onSelect }) => {
   const [showPopup, setShowPopup] = useState(false);
 
   useEffect(() => {
-    const newPos = { lat: finalPos[0], lng: finalPos[1] };
+    let active = true;
+    const updateTarget = async () => {
+      const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+      const snapped = await getSnappedPosition(finalPos[0], finalPos[1], null, apiKey);
+      if (active) {
+        setSnappedTarget(snapped);
+      }
+    };
+    updateTarget();
+    return () => { active = false; };
+  }, [finalPos[0], finalPos[1]]);
+
+  useEffect(() => {
+    const newPos = snappedTarget;
     const prev = currentPos.current;
 
     const dLat = newPos.lat - prev.lat;
@@ -68,10 +84,11 @@ const AdminLiveBusMarker = ({ bus, finalPos, isSelected, onSelect }) => {
       return;
     }
 
-    setBearing(calculateBearing(prev.lat, prev.lng, newPos.lat, newPos.lng));
+    const newBearing = bus.heading ?? bus.course ?? calculateBearing(prev.lat, prev.lng, newPos.lat, newPos.lng);
+    setBearing(newBearing);
     setLastMovedAt(Date.now());
 
-    const duration = 2000;
+    const duration = 4500;
     const startTime = performance.now();
 
     const animate = (time) => {
@@ -95,7 +112,7 @@ const AdminLiveBusMarker = ({ bus, finalPos, isSelected, onSelect }) => {
     return () => {
       if (animationRef.current) cancelAnimationFrame(animationRef.current);
     };
-  }, [finalPos[0], finalPos[1]]);
+  }, [snappedTarget]);
 
   useEffect(() => {
     const statusInterval = setInterval(() => {
@@ -120,7 +137,7 @@ const AdminLiveBusMarker = ({ bus, finalPos, isSelected, onSelect }) => {
     <OverlayView
       position={animPos}
       mapPaneName={OverlayView.OVERLAY_MOUSE_TARGET}
-      getPixelPositionOffset={(width, height) => ({ x: -(width / 2), y: -(height / 2) })}
+      getPixelPositionOffset={() => ({ x: -30, y: -30 })}
     >
       <div 
         className={`swiggy-marker-wrapper cursor-pointer ${isSelected ? 'z-[9999]' : 'z-10'}`} 
@@ -153,6 +170,7 @@ const AdminLiveBusMarker = ({ bus, finalPos, isSelected, onSelect }) => {
         {/* Tooltip */}
         <div className={`absolute -top-6 left-1/2 -translate-x-1/2 px-2 py-1 rounded-lg text-[10px] font-black text-white shadow-lg whitespace-nowrap pointer-events-none ${isSelected ? 'bg-orange-500 z-[9999]' : 'bg-primary'}`}>
           BUS {bus.busNumber}
+          {bus.accuracy > 20 && <span className="ml-1 text-red-200 font-bold opacity-90">(Weak GPS)</span>}
         </div>
 
         {/* Popup */}
@@ -187,6 +205,12 @@ const AdminLiveBusMarker = ({ bus, finalPos, isSelected, onSelect }) => {
                     <span className="text-[9px] font-bold text-foreground/30 uppercase tracking-widest">Bus Driver</span>
                     <span className="text-[10px] font-black text-primary uppercase">{bus.driverName || 'N/A'}</span>
                   </div>
+                  {bus.accuracy > 20 && (
+                    <div className="flex items-center justify-between mt-1">
+                      <span className="text-[9px] font-bold text-red-400 uppercase tracking-widest">GPS Signal</span>
+                      <span className="text-[10px] font-black text-red-500 uppercase">Weak ({Math.round(bus.accuracy)}m)</span>
+                    </div>
+                  )}
               </div>
 
               <div className={`border rounded-lg py-2 px-3 flex items-center justify-center gap-2 ${
@@ -217,10 +241,13 @@ const LiveTracking = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [loading, setLoading] = useState(true);
   const [map, setMap] = useState(null);
-  const [userPanned, setUserPanned] = useState(false);
+  const [isFollowingBus, setIsFollowingBus] = useState(true);
   
   const lastFollowedId = useRef(null);
-  const mapCenterRef = useRef({ lat: 11.0168, lng: 76.9558 });
+  const mapRef = useRef(null);
+  const initialCenterRef = useRef({ lat: 11.0168, lng: 76.9558 });
+  const initialZoomRef = useRef(13);
+  const isFirstLoad = useRef(true);
   
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
@@ -273,21 +300,22 @@ const LiveTracking = () => {
 
   // Map panning logic
   useEffect(() => {
-    if (!map) return;
+    if (!mapRef.current) return;
     
     if (selectedBus) {
       const isNewSelection = lastFollowedId.current !== selectedBus.id;
       if (isValidCoord(selectedBus.latitude, selectedBus.longitude)) {
         const center = { lat: parseFloat(selectedBus.latitude), lng: parseFloat(selectedBus.longitude) };
         if (isNewSelection) {
-          map.panTo(center);
-          map.setZoom(16);
+          mapRef.current.panTo(center);
+          mapRef.current.setZoom(16);
           lastFollowedId.current = selectedBus.id;
-        } else if (!userPanned) {
-          map.panTo(center);
+          setIsFollowingBus(true);
+        } else if (isFollowingBus) {
+          mapRef.current.panTo(center);
         }
       }
-    } else if (buses && buses.length > 0) {
+    } else if (buses && buses.length > 0 && isFirstLoad.current) {
       lastFollowedId.current = null;
       const validMarkers = buses
         .filter(b => isValidCoord(b.latitude, b.longitude))
@@ -296,20 +324,24 @@ const LiveTracking = () => {
       if (validMarkers.length > 0) {
         const bounds = new window.google.maps.LatLngBounds();
         validMarkers.forEach(marker => bounds.extend(marker));
-        map.fitBounds(bounds);
-        // add padding
-        map.panToBounds(bounds, 50);
+        mapRef.current.fitBounds(bounds);
+        mapRef.current.panToBounds(bounds, 50);
+        isFirstLoad.current = false;
       }
     }
-  }, [selectedBus, map, buses]);
+  }, [selectedBus, buses, isFollowingBus]);
 
   const onLoad = useCallback(function callback(mapInstance) {
     setMap(mapInstance);
+    mapRef.current = mapInstance;
   }, []);
 
-  const onUnmount = useCallback(function callback(mapInstance) {
+  const onUnmount = useCallback(function callback() {
     setMap(null);
+    mapRef.current = null;
   }, []);
+
+
 
   if (!isLoaded) {
     return (
@@ -440,13 +472,16 @@ const LiveTracking = () => {
       <Card className="w-full lg:flex-1 h-[500px] lg:h-auto !p-0 relative overflow-hidden border-none shadow-2xl bg-card rounded-[2rem] lg:rounded-[2.5rem]">
          <GoogleMap
             mapContainerStyle={containerStyle}
-            center={mapCenterRef.current}
-            zoom={13}
+            center={initialCenterRef.current}
+            zoom={initialZoomRef.current}
             options={mapOptions}
             onLoad={onLoad}
             onUnmount={onUnmount}
-            onClick={() => setSelectedBus(null)}
-            onDragStart={() => setUserPanned(true)}
+            onClick={() => { setSelectedBus(null); setIsFollowingBus(false); }}
+            onDragStart={() => setIsFollowingBus(false)}
+            onZoomChanged={() => {
+              if (mapRef.current && isLoaded) setIsFollowingBus(false);
+            }}
          >
             {/* Marker Collision Detection & Rendering */}
             {(() => {
@@ -510,18 +545,31 @@ const LiveTracking = () => {
             </button>
             <div className="flex flex-col gap-2 mt-4">
               <button 
-                onClick={() => map?.setZoom(map.getZoom() + 1)}
+                onClick={() => { if(mapRef.current) mapRef.current.setZoom(mapRef.current.getZoom() + 1); setIsFollowingBus(false); }}
                 className="w-14 h-14 bg-background/80 backdrop-blur-md border border-border rounded-2xl flex items-center justify-center text-foreground/40 hover:text-primary transition-all shadow-xl hover:scale-110 active:scale-95"
               >
                 <Plus size={24} />
               </button>
               <button 
-                onClick={() => map?.setZoom(map.getZoom() - 1)}
+                onClick={() => { if(mapRef.current) mapRef.current.setZoom(mapRef.current.getZoom() - 1); setIsFollowingBus(false); }}
                 className="w-14 h-14 bg-background/80 backdrop-blur-md border border-border rounded-2xl flex items-center justify-center text-foreground/40 hover:text-primary transition-all shadow-xl hover:scale-110 active:scale-95"
               >
                 <Minus size={24} />
               </button>
             </div>
+            {!isFollowingBus && selectedBus && (
+              <button 
+                onClick={() => {
+                  setIsFollowingBus(true);
+                  if (mapRef.current) {
+                    mapRef.current.panTo({ lat: parseFloat(selectedBus.latitude), lng: parseFloat(selectedBus.longitude) });
+                  }
+                }}
+                className="w-14 h-14 mt-2 bg-primary text-white backdrop-blur-md border border-border rounded-2xl flex items-center justify-center transition-all shadow-xl hover:scale-110 active:scale-95"
+              >
+                <Bus size={24} />
+              </button>
+            )}
          </div>
 
          {/* Floating Status Card */}

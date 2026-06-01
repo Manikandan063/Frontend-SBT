@@ -18,6 +18,7 @@ import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { useNavigate } from 'react-router-dom';
 import api from '../../../shared/api';
+import { getSnappedPosition } from '../../../shared/utils/mapUtils';
 
 // Fix Leaflet icons
 delete L.Icon.Default.prototype._getIconUrl;
@@ -81,18 +82,32 @@ const DashboardLiveBusMarker = ({ bus, isSelected, onSelect }) => {
   const [bearing, setBearing] = useState(0);
   const [lastMovedAt, setLastMovedAt] = useState(Date.now());
   const [busStatus, setBusStatus] = useState(bus.trackingStatus || 'IDLE');
+  const [snappedPos, setSnappedPos] = useState([bus.latitude, bus.longitude]);
+
+  useEffect(() => {
+    let active = true;
+    const updateTarget = async () => {
+      const apiKey = import.meta.env.VITE_GOOGLE_MAPS_API_KEY;
+      const snapped = await getSnappedPosition(bus.latitude, bus.longitude, null, apiKey);
+      if (active) {
+        setSnappedPos([snapped.lat, snapped.lng]);
+      }
+    };
+    updateTarget();
+    return () => { active = false; };
+  }, [bus.latitude, bus.longitude]);
   
   useEffect(() => {
-    if (prevPos && (prevPos[0] !== bus.latitude || prevPos[1] !== bus.longitude)) {
-      setBearing(calculateBearing(prevPos[0], prevPos[1], bus.latitude, bus.longitude));
-      setPrevPos([bus.latitude, bus.longitude]);
+    if (prevPos && (prevPos[0] !== snappedPos[0] || prevPos[1] !== snappedPos[1])) {
+      setBearing(bus.heading ?? bus.course ?? calculateBearing(prevPos[0], prevPos[1], snappedPos[0], snappedPos[1]));
+      setPrevPos([snappedPos[0], snappedPos[1]]);
       setLastMovedAt(Date.now());
     } else if (!prevPos) {
-      setPrevPos([bus.latitude, bus.longitude]);
+      setPrevPos([snappedPos[0], snappedPos[1]]);
     } else if (bus.speed > 0) {
       setLastMovedAt(Date.now());
     }
-  }, [bus.latitude, bus.longitude, bus.speed, prevPos]);
+  }, [snappedPos[0], snappedPos[1], bus.speed, prevPos, bus.heading, bus.course]);
 
   useEffect(() => {
     const statusInterval = setInterval(() => {
@@ -112,7 +127,7 @@ const DashboardLiveBusMarker = ({ bus, isSelected, onSelect }) => {
 
   return (
     <Marker 
-      position={[bus.latitude, bus.longitude]}
+      position={snappedPos}
       icon={createAnimatedBusIcon(bus, bearing, busStatus, isSelected)}
       zIndexOffset={isSelected ? 9999 : 0}
       eventHandlers={{ click: () => onSelect(bus) }}
@@ -394,9 +409,14 @@ const SchoolAdminDashboard = () => {
                         <h4 className="font-black text-[11px] md:text-sm">{selectedBus.busRegisterNumber || selectedBus.busNumber}</h4>
                         <p className="text-[8px] md:text-[10px] font-bold text-slate-400 mt-0.5">{selectedBus.routeName || 'Unknown Route'}</p>
                      </div>
-                     <span className={`px-1.5 md:px-2 py-0.5 text-[7px] md:text-[9px] font-black uppercase rounded-full ${selectedBus.trackingStatus === 'LIVE' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
-                        {selectedBus.trackingStatus === 'LIVE' ? 'On Route' : 'Offline'}
-                     </span>
+                     <div className="flex flex-col items-end gap-1">
+                       <span className={`px-1.5 md:px-2 py-0.5 text-[7px] md:text-[9px] font-black uppercase rounded-full ${selectedBus.trackingStatus === 'LIVE' ? 'bg-emerald-50 text-emerald-600' : 'bg-slate-100 text-slate-500'}`}>
+                          {selectedBus.trackingStatus === 'LIVE' ? 'On Route' : 'Offline'}
+                       </span>
+                       {selectedBus.accuracy > 20 && (
+                         <span className="text-[7px] md:text-[8px] font-bold text-red-500 uppercase">Weak GPS</span>
+                       )}
+                     </div>
                   </div>
                   
                   <div className="flex items-center gap-2 mb-2 md:mb-4 pb-2 md:pb-4 border-b border-slate-100">
