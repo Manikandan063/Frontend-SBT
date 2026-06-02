@@ -567,21 +567,25 @@ const LiveTracking = () => {
     }
 
     // 3. Setup Fallback Polling
+    let isFallbackActive = false; // Track fallback state to avoid console spam
+    
     pollInterval.current = setInterval(() => {
-      // If socket is disconnected OR no update received via socket for > 10 seconds, do a manual fetch
-      if (!isSocketConnected) {
-        console.log(`🔄 Using fallback polling. Socket connected: false`);
-        fetchLiveLocation();
-      } else if (lastSocketUpdate !== null) {
-        const timeSinceLastUpdate = Date.now() - lastSocketUpdate;
-        if (timeSinceLastUpdate > 10000) {
-          console.log(`🔄 Using fallback polling. Socket connected: true, Time since last update: ${timeSinceLastUpdate}ms`);
-          fetchLiveLocation();
+      // If socket is disconnected OR no update received via socket for > 35 seconds, trigger fallback
+      const shouldFallback = !isSocketConnected || 
+                             (lastSocketUpdate === null) || 
+                             (Date.now() - lastSocketUpdate > 35000);
+
+      if (shouldFallback) {
+        if (!isFallbackActive) {
+          isFallbackActive = true;
+          console.log(`⚠️ Fallback Started. Socket connected: ${isSocketConnected}, Time since last update: ${lastSocketUpdate ? (Date.now() - lastSocketUpdate) + 'ms' : 'Never'}`);
         }
-      } else {
-        // Connected but never received an update. Keep polling as fallback until first update arrives.
-        console.log(`🔄 Using fallback polling. Socket connected but no updates received yet.`);
         fetchLiveLocation();
+      } else {
+        if (isFallbackActive) {
+          isFallbackActive = false;
+          console.log(`✅ Fallback Stopped. Resuming real-time socket updates.`);
+        }
       }
     }, 5000);
 
