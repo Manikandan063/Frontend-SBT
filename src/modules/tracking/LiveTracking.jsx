@@ -8,7 +8,8 @@ import {
   Clock, 
   Bus as BusIcon,
   ShieldCheck,
-  LocateFixed
+  LocateFixed,
+  Terminal
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { GoogleMap, useJsApiLoader, OverlayView, DirectionsRenderer, Marker } from '@react-google-maps/api';
@@ -54,10 +55,10 @@ const isValidCoord = (lat, lng) => {
   return !isNaN(pLat) && !isNaN(pLng);
 };
 
-const LiveBusMarker = ({ bus, routePath }) => {
+const LiveBusMarker = ({ bus, routePath, onSnappedPosUpdate }) => {
   const [bearing, setBearing] = useState(0);
   const [lastMovedAt, setLastMovedAt] = useState(Date.now());
-  const [busStatus, setBusStatus] = useState('IDLE');
+  const [busStatus, setBusStatus] = useState(bus.trackingStatus === 'OFFLINE' ? 'OFFLINE' : (bus.trackingStatus === 'DELAYED' ? 'DELAYED' : 'IDLE'));
   const [animPos, setAnimPos] = useState({ lat: bus.lat, lng: bus.lng });
   const [showPopup, setShowPopup] = useState(false);
   
@@ -71,6 +72,10 @@ const LiveBusMarker = ({ bus, routePath }) => {
       const newPos = await getSnappedPosition(bus.lat, bus.lng, routePath, apiKey);
       
       if (!active) return;
+      
+      if (onSnappedPosUpdate) {
+        onSnappedPosUpdate(newPos);
+      }
 
       const prev = currentPos.current;
 
@@ -187,7 +192,9 @@ const LiveBusMarker = ({ bus, routePath }) => {
 
   useEffect(() => {
     const statusInterval = setInterval(() => {
-      if (bus?.speed > 0) {
+      if (bus.trackingStatus === 'OFFLINE' || bus.trackingStatus === 'DELAYED') {
+        setBusStatus(bus.trackingStatus);
+      } else if (bus?.speed > 0) {
         setBusStatus('MOVING');
       } else {
         const stoppedDuration = (Date.now() - lastMovedAt) / 1000;
@@ -299,6 +306,7 @@ const LiveBusMarker = ({ bus, routePath }) => {
                   <span className={`text-[9px] font-black uppercase px-2.5 py-1 rounded-[6px] shadow-sm tracking-wider ${
                     busStatus === 'MOVING' ? 'bg-[#10B981]/15 text-[#10B981] border border-[#10B981]/30' : 
                     busStatus === 'IDLE' ? 'bg-[#F59E0B]/15 text-[#F59E0B] border border-[#F59E0B]/30' : 
+                    busStatus === 'DELAYED' ? 'bg-[#F59E0B]/15 text-[#F59E0B] border border-[#F59E0B]/30' :
                     'bg-[#EF4444]/15 text-[#EF4444] border border-[#EF4444]/30'
                   }`}>
                     {busStatus}
@@ -345,6 +353,9 @@ const LiveTracking = () => {
   const initialCenterRef = useRef({ lat: 11.0168, lng: 76.9558 });
   const initialZoomRef = useRef(15);
   const [isFollowingBus, setIsFollowingBus] = useState(true);
+  
+  const [snappedPos, setSnappedPos] = useState(null);
+  const [showDebugPanel, setShowDebugPanel] = useState(false);
   
   const mapRef = useRef(null);
   const pollInterval = useRef(null);
@@ -692,7 +703,7 @@ const LiveTracking = () => {
 
           {Object.values(busesData).map((bus, idx) => {
             if (!isValidCoord(bus.lat, bus.lng)) return null;
-            return <LiveBusMarker key={bus.id || idx} bus={bus} routePath={routePath} />;
+            return <LiveBusMarker key={bus.id || idx} bus={bus} routePath={routePath} onSnappedPosUpdate={setSnappedPos} />;
           })}
 
           {userPos && (
@@ -724,6 +735,13 @@ const LiveTracking = () => {
             <Navigation size={20} fill="currentColor" />
           </button>
         )}
+
+        <button 
+          onClick={() => setShowDebugPanel(!showDebugPanel)}
+          className="absolute right-6 top-[240px] z-[1000] p-3 bg-card/90 backdrop-blur-md rounded-[20px] border border-border shadow-sm text-foreground active:scale-95 transition-all pointer-events-auto flex items-center justify-center"
+        >
+          <Terminal size={20} className={showDebugPanel ? "text-[#88B04B]" : "text-foreground"} />
+        </button>
       </div>
 
       <div className="absolute top-0 inset-x-0 p-6 z-10 flex items-center justify-between pointer-events-none">
@@ -743,6 +761,26 @@ const LiveTracking = () => {
           </motion.div>
         </motion.button>
       </div>
+
+      {showDebugPanel && busData && (
+        <div className="absolute top-24 right-4 z-[1000] bg-black/80 text-white p-3 rounded-lg text-[10px] font-mono w-64 pointer-events-none shadow-lg border border-white/20">
+          <div className="font-bold border-b border-white/20 pb-1 mb-1 text-[#88B04B]">DEBUG PANEL</div>
+          <div className="grid grid-cols-2 gap-1">
+            <span className="text-white/60">Raw Lat:</span> <span>{busData.lat?.toFixed(6)}</span>
+            <span className="text-white/60">Raw Lng:</span> <span>{busData.lng?.toFixed(6)}</span>
+            <span className="text-white/60">Snap Lat:</span> <span>{snappedPos?.lat?.toFixed(6) || '--'}</span>
+            <span className="text-white/60">Snap Lng:</span> <span>{snappedPos?.lng?.toFixed(6) || '--'}</span>
+            <span className="text-white/60">Speed:</span> <span>{busData.speed} km/h</span>
+            <span className="text-white/60">Course:</span> <span>{busData.course || busData.heading || 0}°</span>
+            <span className="text-white/60">GPS Age:</span> <span className={busData.gpsAge > 60 ? 'text-orange-400' : 'text-green-400'}>{busData.gpsAge}s</span>
+            <span className="text-white/60">Status:</span> <span className={busData.trackingStatus === 'DELAYED' ? 'text-orange-400' : busData.trackingStatus === 'OFFLINE' ? 'text-red-400' : 'text-green-400'}>{busData.trackingStatus}</span>
+            <span className="text-white/60">Device:</span> <span>{busData.deviceStatus}</span>
+          </div>
+          <div className="mt-1 pt-1 border-t border-white/20">
+            <span className="text-white/60">Last Upd:</span> {busData.lastUpdated ? new Date(busData.lastUpdated).toLocaleTimeString() : '--'}
+          </div>
+        </div>
+      )}
 
       <div className="absolute bottom-0 inset-x-0 z-10 p-4 pb-[calc(env(safe-area-inset-bottom)+1rem)]">
         <motion.div 
@@ -790,11 +828,14 @@ const LiveTracking = () => {
             </div>
           </div>
           
-          {busData && (busData.deviceTime || busData.fixTime || busData.serverTime || busData.lastUpdate || busData.timestamp) && (
+          {busData && busData.lastUpdated && (
             <div className="px-5 pb-4 text-center border-t border-border/50 pt-3">
               <span className="text-[9px] font-bold text-foreground/40 uppercase tracking-widest flex items-center justify-center gap-2">
                 <Clock size={10} className="opacity-50" />
-                Last Updated: {new Date(busData.deviceTime || busData.fixTime || busData.serverTime || busData.lastUpdate || busData.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                Last Updated: {new Date(busData.lastUpdated).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                <span className={`ml-2 px-1.5 py-0.5 rounded text-[8px] ${busData.trackingStatus === 'DELAYED' ? 'bg-orange-500/20 text-orange-500' : busData.trackingStatus === 'OFFLINE' ? 'bg-red-500/20 text-red-500' : 'bg-green-500/20 text-green-500'}`}>
+                  {busData.trackingStatus}
+                </span>
               </span>
             </div>
           )}

@@ -9,28 +9,43 @@ const VAPID_KEY = import.meta.env.VITE_FIREBASE_VAPID_KEY;
 export const requestNotificationPermission = async () => {
   try {
     if (Capacitor.isNativePlatform()) {
-      let permStatus = await PushNotifications.checkPermissions();
-      if (permStatus.receive === 'prompt') {
-        permStatus = await PushNotifications.requestPermissions();
-      }
-      if (permStatus.receive !== 'granted') {
-        console.warn('[Capacitor] User denied push notification permissions!');
+      try {
+        let permStatus = await PushNotifications.checkPermissions();
+        if (permStatus.receive === 'prompt') {
+          permStatus = await PushNotifications.requestPermissions();
+        }
+        if (permStatus.receive !== 'granted') {
+          console.warn('[Capacitor] User denied push notification permissions!');
+          return null;
+        }
+
+        // Prevent duplicate listeners
+        await PushNotifications.removeAllListeners();
+
+        return await new Promise(async (resolve) => {
+          await PushNotifications.addListener('registration', (token) => {
+            console.log('[Capacitor] Push registration success, token: ' + token.value);
+            localStorage.setItem('fcmToken', token.value);
+            resolve(token.value);
+          });
+
+          await PushNotifications.addListener('registrationError', (error) => {
+            console.error('[Capacitor] Error on registration: ' + JSON.stringify(error));
+            resolve(null);
+          });
+
+          // Register AFTER listeners are attached
+          try {
+            await PushNotifications.register();
+          } catch (regErr) {
+            console.error('[Capacitor] Registration exception:', regErr);
+            resolve(null);
+          }
+        });
+      } catch (capErr) {
+        console.error('[Capacitor] Push setup failed:', capErr);
         return null;
       }
-
-      await PushNotifications.register();
-
-      return new Promise((resolve) => {
-        PushNotifications.addListener('registration', (token) => {
-          console.log('[Capacitor] Push registration success, token: ' + token.value);
-          localStorage.setItem('fcmToken', token.value);
-          resolve(token.value);
-        });
-        PushNotifications.addListener('registrationError', (error) => {
-          console.error('[Capacitor] Error on registration: ' + JSON.stringify(error));
-          resolve(null);
-        });
-      });
     }
 
     // Web Firebase Logic

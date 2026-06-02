@@ -82,7 +82,8 @@ const NotificationsPage = () => {
   const [refreshing, setRefreshing] = useState(false);
   const getDismissedKey = () => {
     try {
-      const user = JSON.parse(localStorage.getItem('admin_user') || localStorage.getItem('user') || '{}');
+      const userStr = localStorage.getItem('parent_user') || localStorage.getItem('admin_user') || localStorage.getItem('user');
+      const user = userStr ? JSON.parse(userStr) : {};
       const userId = user.id || user.parent?.id || user.userId || 'guest';
       return `dismissed_notifications_${userId}`;
     } catch (e) {
@@ -92,7 +93,8 @@ const NotificationsPage = () => {
 
   const [dismissedIds, setDismissedIds] = useState(() => {
     try {
-      const user = JSON.parse(localStorage.getItem('admin_user') || localStorage.getItem('user') || '{}');
+      const userStr = localStorage.getItem('parent_user') || localStorage.getItem('admin_user') || localStorage.getItem('user');
+      const user = userStr ? JSON.parse(userStr) : {};
       const userId = user.id || user.parent?.id || user.userId || 'guest';
       const key = `dismissed_notifications_${userId}`;
       const stored = localStorage.getItem(key);
