@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { onMessage, getMessagingInstance } from './firebase/firebase';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
@@ -7,8 +7,20 @@ import api from './shared/api/axios';
 
 const NotificationHandler = () => {
   const navigate = useNavigate();
+  const audioRef = useRef(new Audio('/sounds/notification.mp3'));
 
   useEffect(() => {
+    // Helper to play sound
+    const playNotificationSound = () => {
+      try {
+        const audio = audioRef.current;
+        audio.currentTime = 0;
+        audio.play().catch(e => console.warn('[Audio] Auto-play prevented by browser:', e));
+      } catch (err) {
+        console.warn('[Audio] Failed to play notification sound', err);
+      }
+    };
+
     // 1. Listen for Firebase Messages (Foreground)
     const setupListener = async () => {
       const messaging = await getMessagingInstance();
@@ -21,6 +33,9 @@ const NotificationHandler = () => {
         if (/ignore|test/i.test(title || '') || /ignore|test/i.test(body || '')) {
           return;
         }
+
+        // Play Sound
+        playNotificationSound();
 
         // Trigger UI Dot
         localStorage.setItem('hasUnreadNotifications', 'true');
@@ -53,6 +68,7 @@ const NotificationHandler = () => {
           const isDismissed = dismissedIds.includes(latestNotif.id) || globalDismissedIds.includes(latestNotif.id);
 
           if (lastSeenId !== latestNotif.id && !isDismissed) {
+            playNotificationSound(); // Play sound for pulled notification too
             localStorage.setItem('hasUnreadNotifications', 'true');
             window.dispatchEvent(new CustomEvent('new-notification'));
             
