@@ -12,6 +12,7 @@ import {
   Terminal
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
+import { io } from 'socket.io-client';
 import { GoogleMap, useJsApiLoader, OverlayView, DirectionsRenderer, Marker } from '@react-google-maps/api';
 import { ROUTES } from '../../config/routes';
 import api from '../../shared/api/axios';
@@ -438,25 +439,30 @@ const LiveTracking = () => {
   }, []);
 
   useEffect(() => {
-    const fetchLiveLocation = async () => {
-      if (!allChildren || allChildren.length === 0) return;
-      
-      const uniqueBusIdentifiers = new Set();
-      const busDetailsMap = {};
-      
-      allChildren.forEach(child => {
-        const id = child.currentBusId || child.bus?.driverMobileNumber;
-        if (id) {
-          uniqueBusIdentifiers.add(id);
-          busDetailsMap[id] = child.bus;
-        }
-      });
+    if (!allChildren || allChildren.length === 0) return;
 
-      if (uniqueBusIdentifiers.size === 0) {
-        setLoading(false);
-        return;
+    let socket = null;
+    let isSocketConnected = false;
+    let lastSocketUpdate = null; // Initialize to null
+    
+    const uniqueBusIdentifiers = new Set();
+    const busDetailsMap = {};
+    
+    allChildren.forEach(child => {
+      // Use bus.id if available, otherwise fallback
+      const id = child.bus?.id || child.currentBusId || child.bus?.driverMobileNumber;
+      if (id) {
+        uniqueBusIdentifiers.add(id);
+        busDetailsMap[id] = child.bus;
       }
+    });
 
+    if (uniqueBusIdentifiers.size === 0) {
+      setLoading(false);
+      return;
+    }
+
+    const fetchLiveLocation = async () => {
       const fetchedBuses = {};
       let anyFound = false;
 
@@ -492,9 +498,99 @@ const LiveTracking = () => {
       setLoading(false);
     };
 
+    // 1. Fetch initial location
     fetchLiveLocation();
-    pollInterval.current = setInterval(fetchLiveLocation, 5000);
-    return () => clearInterval(pollInterval.current);
+
+    // 2. Setup Socket.io
+    try {
+      const apiBaseUrl = import.meta.env.VITE_API_URL || '';
+      const socketUrl = apiBaseUrl.replace(/\/api\/?$/, ''); // Strip /api from end
+      
+      socket = io(socketUrl, {
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+        reconnectionAttempts: 10,
+        reconnectionDelay: 2000,
+      });
+
+      socket.on('connect', () => {
+        console.log('✅ Connected to Socket.io server:', socket.id);
+        isSocketConnected = true;
+        // Join rooms for all tracked buses
+        uniqueBusIdentifiers.forEach(id => {
+          socket.emit('joinBusRoom', id);
+          console.log(`📡 Requested to join bus room: ${id}`);
+        });
+      });
+
+      socket.on('disconnect', () => {
+        console.warn('❌ Disconnected from Socket.io server');
+        isSocketConnected = false;
+      });
+
+      socket.on('locationUpdate', (locationData) => {
+        if (!locationData || !locationData.latitude || !locationData.longitude) return;
+        
+        lastSocketUpdate = Date.now();
+        console.log('📍 Real-time Socket Update received for bus:', locationData.busId || 'Unknown');
+
+        const lat = parseFloat(locationData.latitude);
+        const lng = parseFloat(locationData.longitude);
+        
+        if (isNaN(lat) || isNaN(lng)) return;
+
+        // Try to map back to our identifiers
+        let matchingId = null;
+        if (uniqueBusIdentifiers.has(locationData.busId)) matchingId = locationData.busId;
+        else if (uniqueBusIdentifiers.has(locationData.gpsDeviceId)) matchingId = locationData.gpsDeviceId;
+        else if (uniqueBusIdentifiers.has(locationData.driverMobileNumber)) matchingId = locationData.driverMobileNumber;
+        else {
+          // Fallback if ID is not matching directly, just update the first one
+          matchingId = Array.from(uniqueBusIdentifiers)[0];
+        }
+
+        if (matchingId) {
+          const updatedBus = {
+            ...locationData,
+            lat,
+            lng,
+            busInfo: busDetailsMap[matchingId] || locationData.busInfo
+          };
+
+          setBusesData(prev => ({ ...prev, [matchingId]: { ...prev[matchingId], ...updatedBus } }));
+          setBusData(prev => ({ ...prev, ...updatedBus }));
+          setBusPos({ lat, lng });
+        }
+      });
+    } catch (error) {
+      console.error('Socket connection error:', error);
+    }
+
+    // 3. Setup Fallback Polling
+    pollInterval.current = setInterval(() => {
+      // If socket is disconnected OR no update received via socket for > 10 seconds, do a manual fetch
+      if (!isSocketConnected) {
+        console.log(`🔄 Using fallback polling. Socket connected: false`);
+        fetchLiveLocation();
+      } else if (lastSocketUpdate !== null) {
+        const timeSinceLastUpdate = Date.now() - lastSocketUpdate;
+        if (timeSinceLastUpdate > 10000) {
+          console.log(`🔄 Using fallback polling. Socket connected: true, Time since last update: ${timeSinceLastUpdate}ms`);
+          fetchLiveLocation();
+        }
+      } else {
+        // Connected but never received an update. Keep polling as fallback until first update arrives.
+        console.log(`🔄 Using fallback polling. Socket connected but no updates received yet.`);
+        fetchLiveLocation();
+      }
+    }, 5000);
+
+    return () => {
+      clearInterval(pollInterval.current);
+      if (socket) {
+        socket.disconnect();
+      }
+    };
   }, [allChildren]);
 
   useEffect(() => {
