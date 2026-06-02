@@ -10,34 +10,67 @@ export const requestNotificationPermission = async () => {
   try {
     if (Capacitor.isNativePlatform()) {
       try {
-        let permStatus = await PushNotifications.checkPermissions();
-        if (permStatus.receive === 'prompt') {
-          permStatus = await PushNotifications.requestPermissions();
+        if (!Capacitor.isPluginAvailable('PushNotifications')) {
+          console.warn('[Capacitor] PushNotifications plugin not available. Skipping native push.');
+          return null;
         }
+
+        // Prevent duplicate registration on every reload
+        const isRegistered = localStorage.getItem('cap_push_registered');
+
+        let permStatus = await PushNotifications.checkPermissions();
+        
+        if (permStatus.receive === 'prompt') {
+          try {
+            permStatus = await PushNotifications.requestPermissions();
+          } catch (permErr) {
+            console.error('[Capacitor] requestPermissions exception:', permErr);
+            return null;
+          }
+        }
+        
         if (permStatus.receive !== 'granted') {
           console.warn('[Capacitor] User denied push notification permissions!');
           return null;
         }
 
-        // Prevent duplicate listeners
-        await PushNotifications.removeAllListeners();
+        if (isRegistered) {
+          console.log('[Capacitor] Already registered. Returning cached token if available.');
+          return localStorage.getItem('fcmToken') || null;
+        }
+
+        try {
+          await PushNotifications.removeAllListeners();
+        } catch (e) {
+          console.warn('[Capacitor] removeAllListeners error (ignoring):', e);
+        }
 
         return await new Promise(async (resolve) => {
-          await PushNotifications.addListener('registration', (token) => {
-            console.log('[Capacitor] Push registration success, token: ' + token.value);
-            localStorage.setItem('fcmToken', token.value);
-            resolve(token.value);
-          });
+          let timeoutId = setTimeout(() => {
+             console.warn('[Capacitor] Registration timed out.');
+             resolve(null);
+          }, 10000); // 10 second timeout
 
-          await PushNotifications.addListener('registrationError', (error) => {
-            console.error('[Capacitor] Error on registration: ' + JSON.stringify(error));
-            resolve(null);
-          });
-
-          // Register AFTER listeners are attached
           try {
+            await PushNotifications.addListener('registration', (token) => {
+              clearTimeout(timeoutId);
+              console.log('[Capacitor] Push registration success, token: ' + token.value);
+              localStorage.setItem('fcmToken', token.value);
+              localStorage.setItem('cap_push_registered', 'true');
+              resolve(token.value);
+            });
+
+            await PushNotifications.addListener('registrationError', (error) => {
+              clearTimeout(timeoutId);
+              console.error('[Capacitor] Error on registration: ' + JSON.stringify(error));
+              localStorage.removeItem('cap_push_registered');
+              resolve(null);
+            });
+
+            // Register AFTER listeners are attached
             await PushNotifications.register();
           } catch (regErr) {
+            clearTimeout(timeoutId);
             console.error('[Capacitor] Registration exception:', regErr);
             resolve(null);
           }

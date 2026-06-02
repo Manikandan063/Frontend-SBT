@@ -649,17 +649,40 @@ const LiveTracking = () => {
           }}
         >
           {directionsResponse && (
-            <DirectionsRenderer 
-              directions={directionsResponse} 
-              options={{ 
-                suppressMarkers: true,
-                polylineOptions: {
-                  strokeColor: '#0891B2',
-                  strokeWeight: 6,
-                  strokeOpacity: 0.8
-                }
-              }} 
-            />
+            <>
+              {/* Outer Border Polyline */}
+              <DirectionsRenderer 
+                directions={directionsResponse} 
+                options={{ 
+                  suppressMarkers: true,
+                  preserveViewport: true,
+                  polylineOptions: {
+                    strokeColor: '#EA580C',
+                    strokeWeight: 8,
+                    strokeOpacity: 0.95,
+                    zIndex: 1,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                  }
+                }} 
+              />
+              {/* Inner Route Polyline */}
+              <DirectionsRenderer 
+                directions={directionsResponse} 
+                options={{ 
+                  suppressMarkers: true,
+                  preserveViewport: true,
+                  polylineOptions: {
+                    strokeColor: '#F97316',
+                    strokeWeight: 5,
+                    strokeOpacity: 0.95,
+                    zIndex: 2,
+                    lineCap: 'round',
+                    lineJoin: 'round'
+                  }
+                }} 
+              />
+            </>
           )}
 
           <Marker 
