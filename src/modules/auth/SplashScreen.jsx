@@ -8,9 +8,20 @@ const SplashScreen = () => {
   const navigate = useNavigate();
 
   useEffect(() => {
+    const token = localStorage.getItem('token');
+    
+    // If user is already logged in, bypass the long splash screen
+    if (token) {
+      const shortTimer = setTimeout(() => {
+        navigate(ROUTES.DASHBOARD);
+      }, 800);
+      return () => clearTimeout(shortTimer);
+    }
+
+    // If not logged in, show splash for a bit then go to login
     const timer = setTimeout(() => {
       navigate(ROUTES.LOGIN);
-    }, 3000);
+    }, 2000);
     return () => clearTimeout(timer);
   }, [navigate]);
 

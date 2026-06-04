@@ -51,6 +51,7 @@ const isValidCoord = (lat, lng) => {
 
 const AdminLiveBusMarker = ({ bus, finalPos, isSelected, onSelect }) => {
   const [bearing, setBearing] = useState(0);
+  const bearingRef = useRef(0);
   const [busStatus, setBusStatus] = useState(bus.trackingStatus || 'IDLE');
   const [lastMovedAt, setLastMovedAt] = useState(Date.now());
   const [animPos, setAnimPos] = useState({ lat: finalPos[0], lng: finalPos[1] });
@@ -86,8 +87,14 @@ const AdminLiveBusMarker = ({ bus, finalPos, isSelected, onSelect }) => {
       return;
     }
 
-    const newBearing = bus.heading ?? bus.course ?? calculateBearing(prev.lat, prev.lng, newPos.lat, newPos.lng);
+    let calculated = calculateBearing(prev.lat, prev.lng, newPos.lat, newPos.lng);
+    let diff = calculated - (bearingRef.current % 360);
+    if (diff > 180) diff -= 360;
+    if (diff < -180) diff += 360;
+    const newBearing = bearingRef.current + diff;
+    
     setBearing(newBearing);
+    bearingRef.current = newBearing;
     setLastMovedAt(Date.now());
 
     const duration = 4500;
@@ -254,6 +261,7 @@ const LiveTracking = () => {
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
+    region: 'IN'
   });
 
   useEffect(() => {

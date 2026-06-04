@@ -14,7 +14,6 @@ export const calculateBearing = (startLat, startLng, destLat, destLng) => {
   const bearing = (Math.atan2(y, x) * 180) / Math.PI;
   return (bearing + 360) % 360;
 };
-
 const snappedCache = new Map();
 
 export const getSnappedPosition = async (lat, lng, routePath = null, apiKey = null) => {
@@ -29,8 +28,12 @@ export const getSnappedPosition = async (lat, lng, routePath = null, apiKey = nu
         nearestPoint = pt;
       }
     });
-    // Assuming polyline snapping is successful enough if a path exists
-    return nearestPoint;
+    
+    // Only snap if the bus is reasonably close to the route (approx 100-150 meters)
+    // 0.001 degrees is ~111 meters. (0.001)^2 = 0.000001
+    if (minDist < 0.000002) {
+      return nearestPoint;
+    }
   }
 
   // 2. Try Google Roads API

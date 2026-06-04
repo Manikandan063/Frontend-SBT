@@ -32,6 +32,7 @@ import SchoolAdminDashboard from '../modules/schooladmin/pages/SchoolAdminDashbo
 import StudentManagement from '../modules/schooladmin/pages/StudentManagement';
 import BusManagement from '../modules/schooladmin/pages/BusManagement';
 import SchoolLiveTracking from '../modules/schooladmin/pages/LiveTracking';
+import BusNavigation from '../modules/schooladmin/pages/BusNavigation';
 import ParentManagement from '../modules/schooladmin/pages/ParentManagement';
 import DriverManagement from '../modules/schooladmin/pages/DriverManagement';
 import RouteManagement from '../modules/schooladmin/pages/RouteManagement';
@@ -93,6 +94,7 @@ const AppRoutes = () => {
         <Route path={ROUTES.STUDENT_MANAGEMENT} element={<StudentManagement />} />
         <Route path={ROUTES.BUS_MANAGEMENT} element={<BusManagement />} />
         <Route path={ROUTES.LIVE_TRACKING} element={<SchoolLiveTracking />} />
+        <Route path={ROUTES.BUS_NAVIGATION} element={<BusNavigation />} />
         <Route path={ROUTES.PARENT_MANAGEMENT} element={<ParentManagement />} />
         <Route path={ROUTES.DRIVER_MANAGEMENT} element={<DriverManagement />} />
         <Route path={ROUTES.ROUTE_MANAGEMENT} element={<RouteManagement />} />

@@ -27,6 +27,7 @@ export const ROUTES = {
   DRIVER_MANAGEMENT: '/schooladmin/drivers',
   ROUTE_MANAGEMENT: '/schooladmin/routes',
   LIVE_TRACKING: '/schooladmin/tracking',
+  BUS_NAVIGATION: '/schooladmin/navigation',
   TRANSFER_MANAGEMENT: '/schooladmin/transfers',
   NOTIFICATION_MANAGEMENT: '/schooladmin/notifications',
   SCHOOL_REPORTS: '/schooladmin/reports',

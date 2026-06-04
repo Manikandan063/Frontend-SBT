@@ -33,6 +33,7 @@ export const SCHOOLADMIN_MENU = [
   { label: 'Drivers', path: ROUTES.DRIVER_MANAGEMENT, icon: UserCheck },
   { label: 'Routes', path: ROUTES.ROUTE_MANAGEMENT, icon: Route },
   { label: 'Live Tracking', path: ROUTES.LIVE_TRACKING, icon: Map },
+  { label: 'Bus Navigation', path: ROUTES.BUS_NAVIGATION, icon: Navigation },
   { label: 'Transfers', path: ROUTES.TRANSFER_MANAGEMENT, icon: ArrowLeftRight },
   { label: 'Notifications', path: ROUTES.NOTIFICATION_MANAGEMENT, icon: Bell },
   { label: 'Reports', path: ROUTES.SCHOOL_REPORTS, icon: ClipboardList },

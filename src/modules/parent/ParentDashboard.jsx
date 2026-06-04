@@ -107,12 +107,18 @@ const ParentDashboard = () => {
           const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
           const directDist = R * c;
 
-          try {
-            const osrmResponse = await fetch(
-              `https://router.project-osrm.org/route/v1/driving/${busLng},${busLat};${pickupLng},${pickupLat}?overview=false`,
-            ).catch(() => null);
+            try {
+              const controller = new AbortController();
+              const timeoutId = setTimeout(() => controller.abort(), 3000); // 3-second timeout
+              
+              const osrmResponse = await fetch(
+                `https://router.project-osrm.org/route/v1/driving/${busLng},${busLat};${pickupLng},${pickupLat}?overview=false`,
+                { signal: controller.signal }
+              ).catch(() => null);
+              
+              clearTimeout(timeoutId);
 
-            const osrmData = osrmResponse ? await osrmResponse.json() : null;
+              const osrmData = osrmResponse ? await osrmResponse.json() : null;
 
             if (osrmData?.routes?.length > 0) {
               const route = osrmData.routes[0];
@@ -153,7 +159,14 @@ const ParentDashboard = () => {
     return () => clearInterval(interval);
   }, [selectedChildId, selectedChild?.currentBusId]);
 
-  if (loading) return null;
+  if (loading) {
+    return (
+      <div className="h-screen bg-background flex flex-col items-center justify-center gap-4">
+        <div className="w-12 h-12 border-4 border-primary border-t-transparent rounded-full animate-spin" />
+        <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-foreground/40">Loading Dashboard...</p>
+      </div>
+    );
+  }
 
   return (
     <div className="matte-green-theme min-h-screen bg-transparent pb-32">
@@ -297,13 +310,13 @@ const ParentDashboard = () => {
                     <span className="text-6xl font-black tracking-tighter">
                       {etaData.minutes}
                     </span>
-                    <span className="text-lg font-bold opacity-40 uppercase">
+                    <span className="text-lg font-bold opacity-80 uppercase">
                       {t("min")}
                     </span>
                   </div>
                 </div>
                 <div className="text-right">
-                  <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white/10 rounded-xl mb-2">
+                  <div className="inline-flex items-center gap-2 px-3 py-1.5 bg-white/25 rounded-xl mb-2">
                     <MapPin size={12} className="text-accent" />
                     <span className="text-[11px] font-bold">
                       {etaData.km} {t("km_away")}

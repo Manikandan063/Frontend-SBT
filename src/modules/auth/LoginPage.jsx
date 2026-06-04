@@ -17,6 +17,13 @@ const LoginPage = () => {
   const [rememberMe, setRememberMe] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
 
+  useEffect(() => {
+    // If the user already has an active session, skip the login screen
+    if (localStorage.getItem('token')) {
+      navigate(ROUTES.DASHBOARD, { replace: true });
+    }
+  }, [navigate]);
+
   const handleLogin = async (e) => {
     if (e) e.preventDefault();
     setLoading(true);

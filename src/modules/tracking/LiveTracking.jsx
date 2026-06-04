@@ -58,6 +58,7 @@ const isValidCoord = (lat, lng) => {
 
 const LiveBusMarker = ({ bus, routePath, onSnappedPosUpdate }) => {
   const [bearing, setBearing] = useState(0);
+  const bearingRef = useRef(0);
   const [lastMovedAt, setLastMovedAt] = useState(Date.now());
   const [busStatus, setBusStatus] = useState(bus.trackingStatus === 'OFFLINE' ? 'OFFLINE' : (bus.trackingStatus === 'DELAYED' ? 'DELAYED' : 'IDLE'));
   const [animPos, setAnimPos] = useState({ lat: bus.lat, lng: bus.lng });
@@ -170,8 +171,17 @@ const LiveBusMarker = ({ bus, routePath, onSnappedPosUpdate }) => {
       setAnimPos({ lat: currentLat, lng: currentLng });
       currentPos.current = { lat: currentLat, lng: currentLng };
 
-      const newBearing = bus.heading ?? bus.course ?? calculateBearing(p1.lat, p1.lng, p2.lat, p2.lng);
+      let newBearing = bearingRef.current;
+      if (Math.abs(p1.lat - p2.lat) > 0.0000001 || Math.abs(p1.lng - p2.lng) > 0.0000001) {
+        let calculated = calculateBearing(p1.lat, p1.lng, p2.lat, p2.lng);
+        let diff = calculated - (bearingRef.current % 360);
+        if (diff > 180) diff -= 360;
+        if (diff < -180) diff += 360;
+        newBearing = bearingRef.current + diff;
+      }
+      
       setBearing(newBearing);
+      bearingRef.current = newBearing;
 
       if (progress < 1) {
         animationRef.current = requestAnimationFrame(animate);
@@ -329,6 +339,7 @@ const LiveTracking = () => {
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
+    region: 'IN',
     libraries
   });
 
@@ -338,9 +349,10 @@ const LiveTracking = () => {
   const [allChildren, setAllChildren] = useState([]);
   const [activeChild, setActiveChild] = useState(null);
   
-  const [busPos, setBusPos] = useState({ lat: 11.0168, lng: 76.9558 }); 
+  const [busPos, setBusPos] = useState(null); 
   const [homePos, setHomePos] = useState({ lat: 11.0055, lng: 76.9410 });
   const [schoolPos, setSchoolPos] = useState({ lat: 11.0250, lng: 76.9700 });
+  const schoolPosRef = useRef({ lat: 11.0250, lng: 76.9700 });
   
   const [directionsResponse, setDirectionsResponse] = useState(null);
   const [distance, setDistance] = useState("0");
@@ -365,6 +377,23 @@ const LiveTracking = () => {
 
   const calculateRoute = useCallback(async () => {
     if (!window.google || !busPos || !homePos || isNaN(busPos.lat) || isNaN(homePos.lat)) {
+      return;
+    }
+
+    // Pre-check distance: If distance is ridiculously large (> 150km), don't even ask Google Maps
+    const R = 6371;
+    const dLat = (homePos.lat - busPos.lat) * Math.PI / 180;
+    const dLon = (homePos.lng - busPos.lng) * Math.PI / 180;
+    const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+              Math.cos(busPos.lat * Math.PI / 180) * Math.cos(homePos.lat * Math.PI / 180) *
+              Math.sin(dLon/2) * Math.sin(dLon/2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    const distanceKm = R * c;
+
+    if (distanceKm > 150) {
+      console.warn(`[Routing] Distance is ${distanceKm.toFixed(1)}km (>150km threshold). Skipping driving route calculation.`);
+      setRoutePath([]);
+      setDirectionsResponse(null);
       return;
     }
     
@@ -393,7 +422,11 @@ const LiveTracking = () => {
         setRoutePath(fullPath);
       }
     } catch (error) {
-      console.error("Error fetching directions:", error);
+      if (error?.message?.includes('ZERO_RESULTS') || error?.code === 'ZERO_RESULTS') {
+        console.warn("[Routing] No driving route found between bus and destination. Drawing a straight line fallback.");
+      } else {
+        console.error("Error fetching directions:", error);
+      }
       // Fallback: clear route path on failure so it draws straight line
       setRoutePath([]);
       setDirectionsResponse(null);
@@ -418,10 +451,13 @@ const LiveTracking = () => {
               const pLat = parseFloat(child.pickupLat);
               const pLng = parseFloat(child.pickupLng);
               setHomePos({ lat: pLat, lng: pLng });
-              setBusPos({ lat: pLat, lng: pLng }); 
             }
             if (child.school && child.school.latitude) {
-              setSchoolPos({ lat: parseFloat(child.school.latitude), lng: parseFloat(child.school.longitude) });
+              const sLat = parseFloat(child.school.latitude);
+              const sLng = parseFloat(child.school.longitude);
+              setSchoolPos({ lat: sLat, lng: sLng });
+              schoolPosRef.current = { lat: sLat, lng: sLng };
+              initialCenterRef.current = { lat: sLat, lng: sLng };
             }
           }
           if (profile.children.length === 0) {
@@ -472,9 +508,13 @@ const LiveTracking = () => {
           const location = response.data.data;
           
           if (location && location.latitude && location.longitude) {
-            const lat = parseFloat(location.latitude);
-            const lng = parseFloat(location.longitude);
+            let lat = parseFloat(location.latitude);
+            let lng = parseFloat(location.longitude);
             if (!isNaN(lat) && !isNaN(lng)) {
+              if (Math.abs(lat) < 0.1 && Math.abs(lng) < 0.1) {
+                lat = schoolPosRef.current.lat;
+                lng = schoolPosRef.current.lng;
+              }
               fetchedBuses[id] = {
                 ...location,
                 lat,
@@ -534,19 +574,35 @@ const LiveTracking = () => {
         lastSocketUpdate = Date.now();
         console.log('📍 Real-time Socket Update received for bus:', locationData.busId || 'Unknown');
 
-        const lat = parseFloat(locationData.latitude);
-        const lng = parseFloat(locationData.longitude);
+        let lat = parseFloat(locationData.latitude);
+        let lng = parseFloat(locationData.longitude);
         
         if (isNaN(lat) || isNaN(lng)) return;
 
+        if (Math.abs(lat) < 0.1 && Math.abs(lng) < 0.1) {
+          lat = schoolPosRef.current.lat;
+          lng = schoolPosRef.current.lng;
+        }
+
         // Try to map back to our identifiers
         let matchingId = null;
-        if (uniqueBusIdentifiers.has(locationData.busId)) matchingId = locationData.busId;
-        else if (uniqueBusIdentifiers.has(locationData.gpsDeviceId)) matchingId = locationData.gpsDeviceId;
-        else if (uniqueBusIdentifiers.has(locationData.driverMobileNumber)) matchingId = locationData.driverMobileNumber;
-        else {
-          // Fallback if ID is not matching directly, just update the first one
-          matchingId = Array.from(uniqueBusIdentifiers)[0];
+        
+        // Convert IDs to string for safe comparison
+        const safeBusId = locationData.busId ? String(locationData.busId) : null;
+        const safeGpsId = locationData.gpsDeviceId ? String(locationData.gpsDeviceId) : null;
+        const safeDriverNum = locationData.driverMobileNumber ? String(locationData.driverMobileNumber) : null;
+
+        for (const id of uniqueBusIdentifiers) {
+          const strId = String(id);
+          if (strId === safeBusId || strId === safeGpsId || strId === safeDriverNum) {
+            matchingId = id; // use original type from Set
+            break;
+          }
+        }
+
+        if (!matchingId) {
+          console.warn('Socket update received for unknown bus identifier:', locationData.busId);
+          return; // Ignore updates for buses we aren't tracking
         }
 
         if (matchingId) {
@@ -648,10 +704,14 @@ const LiveTracking = () => {
   };
 
   useEffect(() => {
-    if (mapRef.current && busPos && isFollowingBus && !loading) {
-      mapRef.current.panTo(busPos);
+    if (mapRef.current && isFollowingBus && !loading) {
+      if (busPos) {
+        mapRef.current.panTo(busPos);
+      } else if (schoolPos) {
+        mapRef.current.panTo(schoolPos);
+      }
     }
-  }, [busPos, isFollowingBus, loading]);
+  }, [busPos, schoolPos, isFollowingBus, loading]);
 
   const onLoad = useCallback(function callback(mapInstance) {
     setMap(mapInstance);
@@ -947,7 +1007,7 @@ const LiveTracking = () => {
             </div>
             <div className="bg-foreground/5 p-3 rounded-[20px] border border-border">
               <span className="text-[8px] font-bold text-foreground/80 uppercase tracking-widest block mb-1">Live Speed</span>
-              <p className="text-xl font-extrabold text-primary tracking-tighter">{Math.round(busData?.speed || 0)} <span className="text-[10px] opacity-40">KM</span></p>
+              <p className="text-xl font-extrabold text-primary tracking-tighter">{Math.round(busData?.speed || 0)} <span className="text-[10px] opacity-40">KM/H</span></p>
             </div>
           </div>
           
