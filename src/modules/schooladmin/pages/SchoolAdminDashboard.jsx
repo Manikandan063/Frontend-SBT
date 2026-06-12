@@ -145,16 +145,13 @@ const SchoolAdminDashboard = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState({
-    totalStudents: 1248,
-    busFleet: 28,
-    drivers: 32,
-    routes: 18,
-    performance: 92,
-    busOverview: { onRoute: 14, standby: 6, maintenance: 3, inactive: 5 },
-    chartData: [
-      { month: 'Jan', value: 45 }, { month: 'Feb', value: 52 }, { month: 'Mar', value: 48 },
-      { month: 'Apr', value: 61 }, { month: 'May', value: 55 }, { month: 'Jun', value: 67 }
-    ],
+    totalStudents: 0,
+    busFleet: 0,
+    drivers: 0,
+    routes: 0,
+    performance: 0,
+    busOverview: { onRoute: 0, standby: 0, maintenance: 0, inactive: 0 },
+    chartData: [],
     alerts: []
   });
   const [fleet, setFleet] = useState([]);
@@ -167,41 +164,25 @@ const SchoolAdminDashboard = () => {
     fetchStats();
   }, []);
 
-  useEffect(() => {
-    if (!loading) {
-      // Mock different data based on the selected range to make the chart interactive
-      const newChartData = [];
-      if (chartRange === 'This Week') {
-        newChartData.push({ month: 'Mon', value: 82 }, { month: 'Tue', value: 88 }, { month: 'Wed', value: 95 }, { month: 'Thu', value: 90 }, { month: 'Fri', value: 92 });
-      } else if (chartRange === 'This Quarter') {
-        newChartData.push({ month: 'Week 1', value: 85 }, { month: 'Week 4', value: 88 }, { month: 'Week 8', value: 92 }, { month: 'Week 12', value: 94 });
-      } else if (chartRange === 'This Year') {
-        newChartData.push({ month: 'Jan', value: 80 }, { month: 'Apr', value: 85 }, { month: 'Jul', value: 90 }, { month: 'Oct', value: 92 }, { month: 'Dec', value: 96 });
-      } else {
-        newChartData.push({ month: 'Jan', value: 85 }, { month: 'Feb', value: 88 }, { month: 'Mar', value: 92 }, { month: 'Apr', value: 89 }, { month: 'May', value: 95 }, { month: 'Jun', value: 94 });
-      }
-      setStats(prev => ({ ...prev, chartData: newChartData }));
-    }
-  }, [chartRange]);
+  // Removed mock chart data effect as per requirement
 
   const fetchStats = async () => {
     try {
       setLoading(true);
       const response = await api.get('/dashboard/school-admin');
-      const data = response.data.data;
+      const data = response.data?.data || response.data;
       
       if (data) {
-        setStats(prev => ({
-          ...prev,
-          totalStudents: data.totalStudents || prev.totalStudents,
-          busFleet: data.busFleet || prev.busFleet,
-          performance: data.fleetEfficiency || prev.performance,
-          drivers: data.totalDrivers || prev.drivers,
-          routes: data.totalRoutes || prev.routes,
-          busOverview: data.busOverview || prev.busOverview,
-          chartData: data.chartData || prev.chartData,
-          alerts: data.alerts || prev.alerts
-        }));
+        setStats({
+          totalStudents: data.totalStudents ?? 0,
+          busFleet: data.busFleet ?? 0,
+          performance: data.fleetEfficiency ?? 0,
+          drivers: data.totalDrivers ?? 0,
+          routes: data.totalRoutes ?? 0,
+          busOverview: data.busOverview ?? { onRoute: 0, standby: 0, maintenance: 0, inactive: 0 },
+          chartData: data.chartData ?? [],
+          alerts: data.alerts ?? []
+        });
         if (data.fleetLocations) {
            setFleet(data.fleetLocations);
            const firstLive = data.fleetLocations.find(b => b.trackingStatus === 'LIVE' && b.latitude && b.longitude);
@@ -210,6 +191,17 @@ const SchoolAdminDashboard = () => {
       }
     } catch (error) {
       console.error('Error fetching school stats:', error);
+      // Ensure we don't fall back to fake data on error
+      setStats({
+        totalStudents: 0,
+        busFleet: 0,
+        drivers: 0,
+        routes: 0,
+        performance: 0,
+        busOverview: { onRoute: 0, standby: 0, maintenance: 0, inactive: 0 },
+        chartData: [],
+        alerts: []
+      });
     } finally {
       setLoading(false);
     }
@@ -317,7 +309,6 @@ const SchoolAdminDashboard = () => {
             <div>
                <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Total Students</p>
                <h3 className="text-2xl font-black mt-0.5">{loading ? "..." : stats.totalStudents.toLocaleString()}</h3>
-               <p className="text-[11px] font-bold text-emerald-600 mt-1">↑ 12 this month</p>
             </div>
          </div>
          {/* Card 2 */}
@@ -328,7 +319,6 @@ const SchoolAdminDashboard = () => {
             <div>
                <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Total Buses</p>
                <h3 className="text-2xl font-black mt-0.5">{loading ? "..." : stats.busFleet}</h3>
-               <p className="text-[11px] font-bold text-emerald-600 mt-1">↑ 2 this month</p>
             </div>
          </div>
          {/* Card 3 */}
@@ -339,7 +329,6 @@ const SchoolAdminDashboard = () => {
             <div>
                <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Total Drivers</p>
                <h3 className="text-2xl font-black mt-0.5">{loading ? "..." : stats.drivers}</h3>
-               <p className="text-[11px] font-bold text-emerald-600 mt-1">↑ 3 this month</p>
             </div>
          </div>
          {/* Card 4 */}
@@ -350,7 +339,6 @@ const SchoolAdminDashboard = () => {
             <div>
                <p className="text-xs font-bold text-slate-400 uppercase tracking-wide">Total Routes</p>
                <h3 className="text-2xl font-black mt-0.5">{loading ? "..." : stats.routes}</h3>
-               <p className="text-[11px] font-bold text-slate-400 mt-1">No change</p>
             </div>
          </div>
          {/* Card 5 */}
@@ -361,7 +349,6 @@ const SchoolAdminDashboard = () => {
             <div>
                <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wide leading-tight">On Time Performance</p>
                <h3 className="text-2xl font-black mt-0.5">{loading ? "..." : `${stats.performance}%`}</h3>
-               <p className="text-[11px] font-bold text-emerald-600 mt-1">↑ 5% this week</p>
             </div>
          </div>
       </div>

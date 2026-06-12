@@ -59,13 +59,8 @@ const NotificationHandler = () => {
         if (latestNotif) {
           const lastSeenId = localStorage.getItem('lastSeenNotificationId');
           
-          // Check if this latest notification was already dismissed
-          const user = JSON.parse(localStorage.getItem('parent_user') || localStorage.getItem('admin_user') || localStorage.getItem('user') || '{}');
-          const dismissedKey = `dismissed_notifications_${user.id || 'guest'}`;
-          const dismissedIds = JSON.parse(localStorage.getItem(dismissedKey) || '[]');
-          const globalDismissedIds = JSON.parse(localStorage.getItem('dismissed_notifications_global') || '[]');
-          
-          const isDismissed = dismissedIds.includes(latestNotif.id) || globalDismissedIds.includes(latestNotif.id);
+          // Trust the backend entirely for whether it's active
+          const isDismissed = false;
 
           if (lastSeenId !== latestNotif.id && !isDismissed) {
             playNotificationSound(); // Play sound for pulled notification too

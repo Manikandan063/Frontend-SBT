@@ -21,22 +21,11 @@ const ParentLayout = () => {
         const response = await api.get(`/notifications/parent?t=${Date.now()}`);
         const notifications = response.data.data || [];
         
-        const getDismissedKey = () => {
-          try {
-            const user = JSON.parse(localStorage.getItem('admin_user') || localStorage.getItem('user') || '{}');
-            const userId = user.id || user.parent?.id || user.userId || 'guest';
-            return `dismissed_notifications_${userId}`;
-          } catch (e) {
-            return 'dismissed_notifications_guest';
-          }
-        };
-        const dismissed = new Set(JSON.parse(localStorage.getItem(getDismissedKey()) || '[]'));
-        
         let newCount = 0;
         const currentKnown = knownIdsRef.current;
         
         notifications.forEach(n => {
-          if (!dismissed.has(n.id) && !currentKnown.has(n.id)) {
+          if (!currentKnown.has(n.id)) {
             newCount++;
             currentKnown.add(n.id);
           }

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { 
@@ -28,6 +28,16 @@ const AdminLogin = ({ type = 'SuperAdmin' }) => {
 
   const [formData, setFormData] = useState({ email: '', password: '' });
 
+  useEffect(() => {
+    const savedEmail = localStorage.getItem('admin_remembered_email');
+    if (savedEmail) {
+      setFormData(prev => ({ ...prev, email: savedEmail }));
+      setRememberMe(true);
+    } else {
+      setRememberMe(false);
+    }
+  }, []);
+
   const isSuper = type === 'SuperAdmin';
   const roleName = isSuper ? 'Super Admin' : 'School Admin';
 
@@ -35,6 +45,12 @@ const AdminLogin = ({ type = 'SuperAdmin' }) => {
     e.preventDefault();
     setLoading(true);
     try {
+      if (rememberMe) {
+        localStorage.setItem('admin_remembered_email', formData.email);
+      } else {
+        localStorage.removeItem('admin_remembered_email');
+      }
+
       const response = await api.post('/auth/login', formData);
       const { token, admin } = response.data;
       
@@ -137,9 +153,13 @@ const AdminLogin = ({ type = 'SuperAdmin' }) => {
                 SCHOOL BUS
               </h1>
               
-              <h2 className="text-[3.8rem] leading-none font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-b from-[#c4eb7e] via-[#8cb845] to-[#4d7319] mb-8">
+              <h2 className="text-[3.8rem] leading-none font-black tracking-tight text-transparent bg-clip-text bg-gradient-to-b from-[#c4eb7e] via-[#8cb845] to-[#4d7319] mb-2">
                 TRACKING
               </h2>
+              
+              <p className="text-[11px] font-black tracking-[0.4em] text-white/40 uppercase mb-8">
+                By XTOWN
+              </p>
               
               <div className="flex items-center gap-4 mb-8 w-full justify-center">
                 <div className="w-12 h-[1px] bg-[#8cb845]/40"></div>
@@ -227,7 +247,6 @@ const AdminLogin = ({ type = 'SuperAdmin' }) => {
                 />
                 <span className="text-[10px] font-black uppercase tracking-[0.15em] text-slate-600 dark:text-slate-300">Remember Me</span>
               </label>
-              <button type="button" className="text-[10px] font-black uppercase tracking-[0.15em] text-[#8cb845] hover:text-[#1a2d18] dark:hover:text-white transition-colors">Forgot Password?</button>
             </div>
 
             <motion.button

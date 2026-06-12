@@ -80,34 +80,6 @@ const NotificationsPage = () => {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const getDismissedKey = () => {
-    try {
-      const userStr = localStorage.getItem('parent_user') || localStorage.getItem('admin_user') || localStorage.getItem('user');
-      const user = userStr ? JSON.parse(userStr) : {};
-      const userId = user.id || user.parent?.id || user.userId || 'guest';
-      return `dismissed_notifications_${userId}`;
-    } catch (e) {
-      return 'dismissed_notifications_guest';
-    }
-  };
-
-  const [dismissedIds, setDismissedIds] = useState(() => {
-    try {
-      const userStr = localStorage.getItem('parent_user') || localStorage.getItem('admin_user') || localStorage.getItem('user');
-      const user = userStr ? JSON.parse(userStr) : {};
-      const userId = user.id || user.parent?.id || user.userId || 'guest';
-      const key = `dismissed_notifications_${userId}`;
-      const stored = localStorage.getItem(key);
-      const globalStored = localStorage.getItem('dismissed_notifications_global');
-      
-      const parsedStored = stored ? JSON.parse(stored) : [];
-      const parsedGlobal = globalStored ? JSON.parse(globalStored) : [];
-      
-      return Array.from(new Set([...parsedStored, ...parsedGlobal]));
-    } catch (e) {
-      return [];
-    }
-  });
 
   const fetchNotifications = async (isManual = false) => {
     if (isManual) setRefreshing(true);
@@ -122,12 +94,13 @@ const NotificationsPage = () => {
         localStorage.setItem('lastSeenNotificationId', fetchedNotifications[0].id);
       }
       
-      const stored = localStorage.getItem(getDismissedKey());
-      const globalStored = localStorage.getItem('dismissed_notifications_global');
-      const parsedStored = stored ? JSON.parse(stored) : [];
-      const parsedGlobal = globalStored ? JSON.parse(globalStored) : [];
-      const combined = Array.from(new Set([...parsedStored, ...parsedGlobal]));
-      setDismissedIds(combined);
+      // Clean up legacy local storage if it exists
+      const userStr = localStorage.getItem('parent_user');
+      if (userStr) {
+        const user = JSON.parse(userStr);
+        localStorage.removeItem(`dismissed_notifications_${user.id || 'guest'}`);
+      }
+      localStorage.removeItem('dismissed_notifications_global');
     } catch (err) {
       console.error('Failed to fetch notifications:', err);
     } finally {
@@ -159,19 +132,11 @@ const NotificationsPage = () => {
   }, []);
 
   const handleDelete = async (id) => {
-    const storageKey = getDismissedKey();
-    const globalKey = 'dismissed_notifications_global';
-    let previousDismissed = [];
-    
-    setDismissedIds(prev => {
-      previousDismissed = [...prev];
-      if (prev.includes(id)) return prev;
-      
-      const updated = [...prev, id];
-      localStorage.setItem(storageKey, JSON.stringify(updated));
-      localStorage.setItem(globalKey, JSON.stringify(updated));
-      return updated;
-    });
+    const deletedNotification = notifications.find(n => n.id === id);
+    if (!deletedNotification) return;
+
+    // Optimistically remove from state immediately
+    setNotifications(prev => prev.filter(n => n.id !== id));
 
     try {
       await api.post('/notifications/dismiss', { notificationId: id });
@@ -198,14 +163,21 @@ const NotificationsPage = () => {
         <button 
           onClick={async (e) => {
             e.stopPropagation();
-            setDismissedIds(previousDismissed);
-            localStorage.setItem(storageKey, JSON.stringify(previousDismissed));
-            localStorage.setItem(globalKey, JSON.stringify(previousDismissed));
+            
+            // Re-insert into state optimistically
+            setNotifications(prev => {
+              const exists = prev.some(n => n.id === deletedNotification.id);
+              if (exists) return prev;
+              const newList = [deletedNotification, ...prev].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+              return newList;
+            });
             
             try {
               await api.post('/notifications/undodismiss', { notificationId: id });
             } catch (err) {
               console.error('[Notifications] Failed to restore notification in database:', err);
+              // If it failed to restore, remove it again
+              setNotifications(prev => prev.filter(n => n.id !== id));
             }
             
             toast.dismiss(t);
@@ -240,7 +212,6 @@ const NotificationsPage = () => {
   };
 
   const filteredNotifications = notifications
-    .filter(n => !dismissedIds.includes(n.id))
     .filter(n => activeTab === 'all' || n.type === activeTab);
 
   return (

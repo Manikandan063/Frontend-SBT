@@ -161,7 +161,10 @@ const ReportManagement = () => {
               type="text" 
               placeholder="Search Student by Name or Roll No..." 
               value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
+              onChange={(e) => {
+                setSearchTerm(e.target.value);
+                if (selectedBus) setSelectedBus(null);
+              }}
               autoComplete="off"
               className="w-full h-16 bg-muted border-none rounded-[1.5rem] pl-16 pr-6 text-sm font-black uppercase outline-none focus:ring-2 ring-primary/10 transition-all text-foreground"
             />
@@ -174,7 +177,7 @@ const ReportManagement = () => {
         </Card>
 
         <AnimatePresence>
-          {students.length > 0 && (
+          {students.length > 0 && searchTerm.length > 2 && !selectedBus && (
             <motion.div 
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}

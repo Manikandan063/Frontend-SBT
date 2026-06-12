@@ -93,32 +93,41 @@ const LiveBusMarker = ({ bus, routePath, onSnappedPosUpdate }) => {
 
       let actualPath = [];
       if (routePath && routePath.length > 0) {
-      const findNearest = (pos) => {
-        let minDist = Infinity;
-        let idx = 0;
-        routePath.forEach((pt, i) => {
-          const d = (pt.lat - pos.lat)**2 + (pt.lng - pos.lng)**2;
-          if (d < minDist) { minDist = d; idx = i; }
-        });
-        return { idx, point: routePath[idx] };
-      };
-      
-      const prevSnap = findNearest(prev);
-      const newSnap = findNearest(newPos);
-      
-      if (prevSnap.idx === newSnap.idx) {
-        actualPath = [prev, newSnap.point];
-      } else {
-        const start = Math.min(prevSnap.idx, newSnap.idx);
-        const end = Math.max(prevSnap.idx, newSnap.idx);
-        actualPath = routePath.slice(start, end + 1);
-        if (prevSnap.idx > newSnap.idx) {
-          actualPath.reverse();
+        // Use the new snapToPolyline which returns the closest point and the segment index
+        // We need to import snapToPolyline from mapUtils.js if it's not already
+        const { snapToPolyline } = await import('../../shared/utils/mapUtils');
+        const prevSnap = snapToPolyline(prev, routePath);
+        const newSnap = snapToPolyline(newPos, routePath);
+        
+        let isBackward = false;
+        if (newSnap.index < prevSnap.index) {
+          isBackward = true;
+        } else if (newSnap.index === prevSnap.index) {
+          const segStart = routePath[prevSnap.index];
+          const distPrev = (prevSnap.point.lat - segStart.lat)**2 + (prevSnap.point.lng - segStart.lng)**2;
+          const distNew = (newSnap.point.lat - segStart.lat)**2 + (newSnap.point.lng - segStart.lng)**2;
+          if (distNew < distPrev - 0.000000001) { // Slight tolerance for floating point math
+            isBackward = true;
+          }
         }
-        // Ensure smooth transition from current pos
-        actualPath.unshift(prev);
-      }
-    } else {
+
+        if (isBackward) {
+           return; // Ignore backward GPS jitter
+        }
+        
+        if (prevSnap.index === newSnap.index) {
+          actualPath = [prevSnap.point, newSnap.point];
+        } else {
+          const start = Math.min(prevSnap.index, newSnap.index);
+          const end = Math.max(prevSnap.index, newSnap.index);
+          // +2 because index is the segment start, and we want up to the segment end
+          actualPath = routePath.slice(start + 1, end + 1);
+          
+          // Ensure smooth transition connecting the start and end snapped points
+          actualPath.unshift(prevSnap.point);
+          actualPath.push(newSnap.point);
+        }
+      } else {
       actualPath = [prev, newPos];
     }
 
@@ -172,7 +181,7 @@ const LiveBusMarker = ({ bus, routePath, onSnappedPosUpdate }) => {
       currentPos.current = { lat: currentLat, lng: currentLng };
 
       let newBearing = bearingRef.current;
-      if (Math.abs(p1.lat - p2.lat) > 0.0000001 || Math.abs(p1.lng - p2.lng) > 0.0000001) {
+      if (Math.abs(p1.lat - p2.lat) > 0.00001 || Math.abs(p1.lng - p2.lng) > 0.00001) {
         let calculated = calculateBearing(p1.lat, p1.lng, p2.lat, p2.lng);
         let diff = calculated - (bearingRef.current % 360);
         if (diff > 180) diff -= 360;
@@ -447,11 +456,28 @@ const LiveTracking = () => {
           const child = profile.children.find(c => c.id === selectedChildId) || profile.children[0];
           setActiveChild(child);
           if (child) {
-            if (child.pickupLat && child.pickupLng) {
-              const pLat = parseFloat(child.pickupLat);
-              const pLng = parseFloat(child.pickupLng);
-              setHomePos({ lat: pLat, lng: pLng });
+            const currentHour = new Date().getHours();
+            const isMorning = currentHour < 12;
+
+            let destLat = null;
+            let destLng = null;
+
+            if (isMorning && child.pickupLat && child.pickupLng) {
+              destLat = parseFloat(child.pickupLat);
+              destLng = parseFloat(child.pickupLng);
+            } else if (!isMorning && child.dropLat && child.dropLng) {
+              destLat = parseFloat(child.dropLat);
+              destLng = parseFloat(child.dropLng);
+            } else if (child.pickupLat && child.pickupLng) {
+              // Fallback if drop coordinates are missing
+              destLat = parseFloat(child.pickupLat);
+              destLng = parseFloat(child.pickupLng);
             }
+
+            if (destLat && destLng) {
+              setHomePos({ lat: destLat, lng: destLng });
+            }
+
             if (child.school && child.school.latitude) {
               const sLat = parseFloat(child.school.latitude);
               const sLng = parseFloat(child.school.longitude);
@@ -655,29 +681,33 @@ const LiveTracking = () => {
 
   useEffect(() => {
     if (isLoaded && !loading && busPos && homePos) {
-      const now = Date.now();
-      let shouldCalculate = false;
+      const checkDeviation = async () => {
+        const now = Date.now();
+        let shouldCalculate = false;
 
-      if (!lastRouteOrigin.current) {
-        shouldCalculate = true;
-      } else {
-        const dLat = busPos.lat - lastRouteOrigin.current.lat;
-        const dLng = busPos.lng - lastRouteOrigin.current.lng;
-        const distSq = dLat * dLat + dLng * dLng;
-        // ~100 meters is roughly 0.001 degrees, squared is 0.000001
-        if (distSq > 0.000001) {
+        if (!lastRouteOrigin.current || !routePath || routePath.length === 0) {
           shouldCalculate = true;
+        } else {
+          const { snapToPolyline } = await import('../../shared/utils/mapUtils');
+          const snap = snapToPolyline(busPos, routePath);
+          
+          // If GPS deviates more than 50 meters from the polyline, recalculate
+          if (snap.distance > 50) {
+            shouldCalculate = true;
+          }
         }
-      }
 
-      // If we should calculate and at least 15 seconds have passed since last fetch to avoid spamming
-      if (shouldCalculate && (now - lastRouteFetch.current > 15000)) {
-        calculateRoute();
-        lastRouteFetch.current = now;
-        lastRouteOrigin.current = busPos;
-      }
+        // If we should calculate and at least 15 seconds have passed since last fetch to avoid spamming
+        if (shouldCalculate && (now - lastRouteFetch.current > 15000)) {
+          calculateRoute();
+          lastRouteFetch.current = now;
+          lastRouteOrigin.current = busPos;
+        }
+      };
+      
+      checkDeviation();
     }
-  }, [busPos, homePos, isLoaded, loading, calculateRoute]);
+  }, [busPos, homePos, isLoaded, loading, calculateRoute, routePath]);
 
   const handleLocate = () => {
     setLocating(true);

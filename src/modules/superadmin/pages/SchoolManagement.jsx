@@ -12,6 +12,7 @@ import {
   Mail,
   MapPin,
   Eye,
+  EyeOff,
   Bus,
   ExternalLink,
   ChevronRight,
@@ -80,6 +81,7 @@ const SchoolManagement = () => {
   const [statusFilter, setStatusFilter] = useState('All');
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
   const [selectedSchool, setSelectedSchool] = useState(null);
+  const [showPassword, setShowPassword] = useState(false);
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -550,14 +552,23 @@ const SchoolManagement = () => {
                               </div>
                               <div className="space-y-1.5">
                                 <label className="text-[10px] font-black uppercase tracking-widest text-foreground/40 px-1">School Admin Password</label>
-                                <input 
-                                  required={!isEditing}
-                                  type="password"
-                                  value={formData.adminPassword}
-                                  onChange={(e) => setFormData({...formData, adminPassword: e.target.value})}
-                                  className="w-full h-14 bg-card border border-border/60 focus:border-primary/30 rounded-2xl px-6 text-sm font-bold outline-none focus:ring-4 ring-primary/5 transition-all"
-                                  placeholder={isEditing ? "Leave blank to keep current password" : "••••••••"}
-                                />
+                                <div className="relative">
+                                  <input 
+                                    required={!isEditing}
+                                    type={showPassword ? "text" : "password"}
+                                    value={formData.adminPassword}
+                                    onChange={(e) => setFormData({...formData, adminPassword: e.target.value})}
+                                    className="w-full h-14 bg-card border border-border/60 focus:border-primary/30 rounded-2xl pl-6 pr-12 text-sm font-bold outline-none focus:ring-4 ring-primary/5 transition-all"
+                                    placeholder={isEditing ? "Leave blank to keep current password" : "••••••••"}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => setShowPassword(!showPassword)}
+                                    className="absolute right-4 top-1/2 -translate-y-1/2 text-foreground/40 hover:text-primary transition-colors"
+                                  >
+                                    {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                                  </button>
+                                </div>
                               </div>
                             </div>
                           </div>

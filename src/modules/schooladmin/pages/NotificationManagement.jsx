@@ -32,6 +32,9 @@ const NotificationManagement = () => {
     targetType: 'all',
     targetId: ''
   });
+  
+  const [showScheduler, setShowScheduler] = useState(false);
+  const [scheduledAt, setScheduledAt] = useState('');
 
   const [feedback, setFeedback] = useState({ type: '', message: '' });
 
@@ -71,16 +74,24 @@ const NotificationManagement = () => {
     setFeedback({ type: '', message: '' });
 
     try {
-      await api.post('/notifications/send', {
+      const payload = {
         title: formData.title,
         body: formData.body,
         type: formData.type.toLowerCase(),
         targetType: formData.targetType,
         targetId: formData.targetId
-      });
+      };
+      
+      if (showScheduler && scheduledAt) {
+        payload.scheduledAt = new Date(scheduledAt).toISOString();
+      }
 
-      setFeedback({ type: 'success', message: 'Notification sent successfully!' });
+      await api.post('/notifications/send', payload);
+
+      setFeedback({ type: 'success', message: showScheduler && scheduledAt ? 'Notification scheduled successfully!' : 'Notification sent successfully!' });
       setFormData({ ...formData, title: '', body: '' }); // Reset form
+      setShowScheduler(false);
+      setScheduledAt('');
       fetchHistory(); // Refresh history
     } catch (err) {
       setFeedback({ type: 'error', message: err.response?.data?.message || 'Failed to send notification' });
@@ -203,16 +214,42 @@ const NotificationManagement = () => {
                   <div className="flex flex-col md:flex-row gap-4 pt-6">
                      <Button 
                        onClick={handleSend}
-                       disabled={loading}
+                       disabled={loading || (showScheduler && !scheduledAt)}
                        className="flex-1 h-14 md:h-16 !rounded-2xl !text-xs md:!text-sm !tracking-widest shadow-xl shadow-primary/20"
                      >
-                        {loading ? <Loader2 className="animate-spin" /> : <Send size={20} />}
-                        {loading ? 'Sending...' : 'Send Now'}
+                        {loading ? <Loader2 className="animate-spin" /> : (showScheduler ? <Clock size={20} /> : <Send size={20} />)}
+                        {loading ? 'Sending...' : (showScheduler ? 'Schedule Now' : 'Send Now')}
                      </Button>
-                     <Button variant="secondary" className="flex-1 h-14 md:h-16 !rounded-2xl !text-xs md:!text-sm !tracking-widest opacity-50 cursor-not-allowed">
-                        <Clock size={20} />
-                        Send Later
-                     </Button>
+                     {!showScheduler ? (
+                       <Button 
+                         variant="secondary" 
+                         onClick={() => setShowScheduler(true)}
+                         className="flex-1 h-14 md:h-16 !rounded-2xl !text-xs md:!text-sm !tracking-widest"
+                       >
+                          <Clock size={20} />
+                          Send Later
+                       </Button>
+                     ) : (
+                       <div className="flex-1 flex gap-2">
+                         <input 
+                           type="datetime-local" 
+                           value={scheduledAt}
+                           onChange={(e) => setScheduledAt(e.target.value)}
+                           min={new Date().toISOString().slice(0, 16)}
+                           className="w-full bg-foreground/5 border border-border rounded-xl px-4 py-4 text-xs font-bold outline-none"
+                         />
+                         <Button 
+                           variant="ghost" 
+                           onClick={() => {
+                             setShowScheduler(false);
+                             setScheduledAt('');
+                           }}
+                           className="h-14 md:h-16 w-14 md:w-16 !rounded-xl !p-0"
+                         >
+                            <Trash2 size={20} className="text-foreground/40" />
+                         </Button>
+                       </div>
+                     )}
                   </div>
               </Card>
            </div>
