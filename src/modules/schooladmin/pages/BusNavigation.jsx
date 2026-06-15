@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'framer-motion';
 import { Map, Navigation, Square, AlertCircle, RefreshCcw } from 'lucide-react';
-import { GoogleMap, useJsApiLoader, DirectionsRenderer, Marker } from '@react-google-maps/api';
+import { GoogleMap, useJsApiLoader, DirectionsRenderer, Marker, Autocomplete } from '@react-google-maps/api';
 import api from '../../../shared/api/axios';
 import { toast } from 'sonner';
 
 const containerStyle = { width: '100%', height: '500px' };
+const libraries = ['places'];
 
 export default function BusNavigation() {
   const [buses, setBuses] = useState([]);
@@ -25,12 +26,14 @@ export default function BusNavigation() {
   
   const watchIdRef = useRef(null);
   const mapRef = useRef(null);
+  const autocompleteRef = useRef(null);
   const [mapZoom, setMapZoom] = useState(15);
   
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
     googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
-    region: 'IN'
+    region: 'IN',
+    libraries
   });
 
   useEffect(() => {
@@ -65,6 +68,25 @@ export default function BusNavigation() {
         toast.error('Destination not found');
       }
     });
+  };
+
+  const onLoadAutocomplete = (autocomplete) => {
+    autocompleteRef.current = autocomplete;
+  };
+
+  const onPlaceChanged = () => {
+    if (autocompleteRef.current !== null) {
+      const place = autocompleteRef.current.getPlace();
+      if (place.geometry && place.geometry.location) {
+        const loc = place.geometry.location;
+        setDestination(place.formatted_address || place.name);
+        setDestPos({ lat: loc.lat(), lng: loc.lng() });
+        toast.success('Destination set from suggestion');
+        if (mapRef.current) {
+          mapRef.current.panTo({ lat: loc.lat(), lng: loc.lng() });
+        }
+      }
+    }
   };
 
   const handleStartTrip = () => {
@@ -205,13 +227,30 @@ export default function BusNavigation() {
         <div className="space-y-2">
           <label className="text-xs font-bold text-foreground/40 uppercase">Destination</label>
           <div className="flex gap-2">
-            <input 
-              type="text" 
-              value={destination}
-              onChange={e => setDestination(e.target.value)}
-              placeholder="School, Stop Name, or Address"
-              className="flex-1 bg-background border border-border rounded-xl px-4 py-2.5 outline-none focus:border-primary text-sm font-bold"
-            />
+            {isLoaded ? (
+              <div className="flex-1">
+                <Autocomplete
+                  onLoad={onLoadAutocomplete}
+                  onPlaceChanged={onPlaceChanged}
+                >
+                  <input 
+                    type="text" 
+                    value={destination}
+                    onChange={e => setDestination(e.target.value)}
+                    placeholder="School, Stop Name, or Address"
+                    className="w-full bg-background border border-border rounded-xl px-4 py-2.5 outline-none focus:border-primary text-sm font-bold"
+                  />
+                </Autocomplete>
+              </div>
+            ) : (
+              <input 
+                type="text" 
+                value={destination}
+                onChange={e => setDestination(e.target.value)}
+                placeholder="School, Stop Name, or Address"
+                className="flex-1 bg-background border border-border rounded-xl px-4 py-2.5 outline-none focus:border-primary text-sm font-bold"
+              />
+            )}
             <button 
               onClick={handleDestinationSearch}
               className="bg-primary/10 text-primary px-4 rounded-xl font-bold hover:bg-primary/20 transition-colors"
