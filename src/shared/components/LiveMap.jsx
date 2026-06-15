@@ -1,4 +1,5 @@
-import { GoogleMap, LoadScript, Marker } from "@react-google-maps/api";
+import { GoogleMap, useJsApiLoader, Marker } from "@react-google-maps/api";
+import { googleMapsApiKey, libraries, region } from "../../config/googleMapsConfig";
 
 const containerStyle = {
   width: "100%",
@@ -11,17 +12,22 @@ const center = {
 };
 
 export default function LiveMap() {
+  const { isLoaded } = useJsApiLoader({
+    id: 'google-map-script',
+    googleMapsApiKey,
+    region,
+    libraries
+  });
+
+  if (!isLoaded) return null;
+
   return (
-    <LoadScript
-      googleMapsApiKey={import.meta.env.VITE_GOOGLE_MAPS_API_KEY}
+    <GoogleMap
+      mapContainerStyle={containerStyle}
+      center={center}
+      zoom={14}
     >
-      <GoogleMap
-        mapContainerStyle={containerStyle}
-        center={center}
-        zoom={14}
-      >
-        <Marker position={center} />
-      </GoogleMap>
-    </LoadScript>
+      <Marker position={center} />
+    </GoogleMap>
   );
 }

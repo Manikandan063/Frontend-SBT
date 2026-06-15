@@ -16,6 +16,7 @@ import { io } from 'socket.io-client';
 import { GoogleMap, useJsApiLoader, OverlayView, DirectionsRenderer, Marker } from '@react-google-maps/api';
 import { ROUTES } from '../../config/routes';
 import api from '../../shared/api/axios';
+import { googleMapsApiKey, libraries, region } from '../../config/googleMapsConfig';
 import { useTheme } from '../../shared/context/ThemeContext';
 import { getStudentImageUrl } from '../../shared/utils/imageUtils';
 import { getSnappedPosition } from '../../shared/utils/mapUtils';
@@ -33,7 +34,6 @@ const mapOptions = {
   clickableIcons: false,
 };
 
-const libraries = ['places'];
 
 const calculateBearing = (startLat, startLng, destLat, destLng) => {
   const startLatRad = (startLat * Math.PI) / 180;
@@ -347,8 +347,8 @@ const LiveTracking = () => {
   const navigate = useNavigate();
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
-    region: 'IN',
+    googleMapsApiKey,
+    region,
     libraries
   });
 

@@ -1,12 +1,13 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { motion } from 'framer-motion';
-import { Map, Navigation, Square, AlertCircle, RefreshCcw } from 'lucide-react';
-import { GoogleMap, useJsApiLoader, DirectionsRenderer, Marker, Autocomplete } from '@react-google-maps/api';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Map, Navigation, Square, AlertCircle, RefreshCcw, MapPin, Loader2, Search } from 'lucide-react';
+import { GoogleMap, useJsApiLoader, DirectionsRenderer, Marker } from '@react-google-maps/api';
 import api from '../../../shared/api/axios';
 import { toast } from 'sonner';
+import { googleMapsApiKey, libraries, region } from '../../../config/googleMapsConfig';
 
 const containerStyle = { width: '100%', height: '500px' };
-const libraries = ['places'];
+
 
 export default function BusNavigation() {
   const [buses, setBuses] = useState([]);
@@ -26,13 +27,17 @@ export default function BusNavigation() {
   
   const watchIdRef = useRef(null);
   const mapRef = useRef(null);
-  const autocompleteRef = useRef(null);
+  const autocompleteService = useRef(null);
   const [mapZoom, setMapZoom] = useState(15);
+  
+  const [predictions, setPredictions] = useState([]);
+  const [isSearchingPlaces, setIsSearchingPlaces] = useState(false);
+  const [showPredictions, setShowPredictions] = useState(false);
   
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
-    region: 'IN',
+    googleMapsApiKey,
+    region,
     libraries
   });
 
@@ -70,23 +75,56 @@ export default function BusNavigation() {
     });
   };
 
-  const onLoadAutocomplete = (autocomplete) => {
-    autocompleteRef.current = autocomplete;
-  };
+  useEffect(() => {
+    if (isLoaded && window.google && !autocompleteService.current) {
+      autocompleteService.current = new window.google.maps.places.AutocompleteService();
+    }
+  }, [isLoaded]);
 
-  const onPlaceChanged = () => {
-    if (autocompleteRef.current !== null) {
-      const place = autocompleteRef.current.getPlace();
-      if (place.geometry && place.geometry.location) {
-        const loc = place.geometry.location;
-        setDestination(place.formatted_address || place.name);
+  useEffect(() => {
+    if (!destination || !showPredictions) {
+      setPredictions([]);
+      return;
+    }
+
+    const fetchPredictions = () => {
+      if (!autocompleteService.current) return;
+      setIsSearchingPlaces(true);
+      autocompleteService.current.getPlacePredictions(
+        { input: destination },
+        (results, status) => {
+          setIsSearchingPlaces(false);
+          if (status === window.google.maps.places.PlacesServiceStatus.OK && results) {
+            setPredictions(results);
+          } else {
+            setPredictions([]);
+          }
+        }
+      );
+    };
+
+    const timer = setTimeout(fetchPredictions, 400); // Debounce
+    return () => clearTimeout(timer);
+  }, [destination, showPredictions]);
+
+  const handlePredictionSelect = (placeId, description) => {
+    setDestination(description);
+    setShowPredictions(false);
+    
+    if (!window.google) return;
+    const geocoder = new window.google.maps.Geocoder();
+    geocoder.geocode({ placeId: placeId }, (results, status) => {
+      if (status === 'OK' && results[0]) {
+        const loc = results[0].geometry.location;
         setDestPos({ lat: loc.lat(), lng: loc.lng() });
-        toast.success('Destination set from suggestion');
+        toast.success('Destination set');
         if (mapRef.current) {
           mapRef.current.panTo({ lat: loc.lat(), lng: loc.lng() });
         }
+      } else {
+        toast.error('Failed to get location details');
       }
-    }
+    });
   };
 
   const handleStartTrip = () => {
@@ -226,34 +264,61 @@ export default function BusNavigation() {
 
         <div className="space-y-2">
           <label className="text-xs font-bold text-foreground/40 uppercase">Destination</label>
-          <div className="flex gap-2">
-            {isLoaded ? (
-              <div className="flex-1">
-                <Autocomplete
-                  onLoad={onLoadAutocomplete}
-                  onPlaceChanged={onPlaceChanged}
-                >
-                  <input 
-                    type="text" 
-                    value={destination}
-                    onChange={e => setDestination(e.target.value)}
-                    placeholder="School, Stop Name, or Address"
-                    className="w-full bg-background border border-border rounded-xl px-4 py-2.5 outline-none focus:border-primary text-sm font-bold"
-                  />
-                </Autocomplete>
-              </div>
-            ) : (
+          <div className="flex gap-2 relative">
+            <div className="flex-1 relative">
               <input 
                 type="text" 
                 value={destination}
-                onChange={e => setDestination(e.target.value)}
-                placeholder="School, Stop Name, or Address"
-                className="flex-1 bg-background border border-border rounded-xl px-4 py-2.5 outline-none focus:border-primary text-sm font-bold"
+                onChange={e => {
+                  setDestination(e.target.value);
+                  setShowPredictions(true);
+                }}
+                onFocus={() => setShowPredictions(true)}
+                placeholder="Search Schools, Hospitals, Bus Stops..."
+                className="w-full bg-background border border-border rounded-xl px-4 py-2.5 outline-none focus:border-primary text-sm font-bold"
               />
-            )}
+              
+              <AnimatePresence>
+                {showPredictions && destination.length > 0 && (
+                  <motion.div 
+                    initial={{ opacity: 0, y: -10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: -10 }}
+                    className="absolute top-full left-0 right-0 mt-2 bg-card border border-border shadow-2xl rounded-xl z-[1000] overflow-hidden max-h-64 overflow-y-auto"
+                  >
+                    {isSearchingPlaces ? (
+                      <div className="p-4 flex items-center justify-center text-foreground/50 gap-2 text-sm font-bold">
+                        <Loader2 className="w-4 h-4 animate-spin" /> Fetching locations...
+                      </div>
+                    ) : predictions.length > 0 ? (
+                      <ul className="flex flex-col">
+                        {predictions.map(p => (
+                          <li 
+                            key={p.place_id} 
+                            onClick={() => handlePredictionSelect(p.place_id, p.description)}
+                            className="px-4 py-3 hover:bg-primary/10 cursor-pointer flex items-start gap-3 border-b border-border last:border-0 transition-colors"
+                          >
+                            <MapPin className="w-4 h-4 mt-0.5 text-primary shrink-0" />
+                            <div className="flex flex-col">
+                              <span className="text-sm font-bold text-foreground">{p.structured_formatting?.main_text || p.description}</span>
+                              <span className="text-xs font-semibold text-foreground/50">{p.structured_formatting?.secondary_text || ''}</span>
+                            </div>
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <div className="p-4 text-center text-sm font-bold text-foreground/50">
+                        No locations found
+                      </div>
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
+            
             <button 
               onClick={handleDestinationSearch}
-              className="bg-primary/10 text-primary px-4 rounded-xl font-bold hover:bg-primary/20 transition-colors"
+              className="bg-primary/10 text-primary px-4 rounded-xl font-bold hover:bg-primary/20 transition-colors shrink-0"
             >
               Set
             </button>

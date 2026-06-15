@@ -12,6 +12,7 @@ import {
 import { motion, AnimatePresence } from 'framer-motion';
 import { Card, Button, Badge } from '../../../shared/components/ui';
 import api from '../../../shared/api/axios';
+import { googleMapsApiKey, libraries, region } from '../../../config/googleMapsConfig';
 import { GoogleMap, useJsApiLoader, OverlayView } from '@react-google-maps/api';
 import { getSnappedPosition } from '../../../shared/utils/mapUtils';
 
@@ -260,8 +261,9 @@ const LiveTracking = () => {
   
   const { isLoaded } = useJsApiLoader({
     id: 'google-map-script',
-    googleMapsApiKey: import.meta.env.VITE_GOOGLE_MAPS_API_KEY,
-    region: 'IN'
+    googleMapsApiKey,
+    region,
+    libraries
   });
 
   useEffect(() => {
